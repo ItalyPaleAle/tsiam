@@ -110,8 +110,9 @@ func TestHandleToken(t *testing.T) {
 		t.Errorf("Expected token_type 'Bearer', got %s", response["token_type"])
 	}
 	
+	// JSON numbers are unmarshaled as float64
 	expiresIn, ok := response["expires_in"].(float64)
-	if !ok || expiresIn != defaultTokenLifetime {
+	if !ok || int(expiresIn) != defaultTokenLifetime {
 		t.Errorf("Expected expires_in '%d', got %v", defaultTokenLifetime, response["expires_in"])
 	}
 
