@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -20,6 +21,7 @@ var (
 	privateKey *rsa.PrivateKey
 	publicKey  *rsa.PublicKey
 	keyID      string
+	tsServer   *tsnet.Server
 )
 
 // JWKSResponse represents the JWKS response structure
@@ -65,14 +67,14 @@ func main() {
 		hostname = "tsiam"
 	}
 
-	srv := &tsnet.Server{
+	tsServer = &tsnet.Server{
 		Hostname: hostname,
 		Logf:     log.Printf,
 	}
-	defer srv.Close()
+	defer tsServer.Close()
 
 	// Start listening
-	ln, err := srv.ListenTLS("tcp", ":443")
+	ln, err := tsServer.ListenTLS("tcp", ":443")
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
@@ -191,28 +193,51 @@ type WhoIsInfo struct {
 }
 
 func getTailscaleWhoIs(r *http.Request) (*WhoIsInfo, error) {
-	// In a real tsnet application, we would use the tsnet.Server's LocalClient
-	// to query the WhoIs API. For now, we'll extract from headers/connection info.
-	
-	// tsnet automatically sets the remote address to the Tailscale node info
-	// We can also use r.TLS.PeerCertificates if mTLS is enabled
-	
-	// For demonstration, we'll use the remote address and X-Forwarded-For header
-	// In production, tsnet provides proper APIs to get node identity
-	
-	nodeID := r.Header.Get("X-Tailscale-Node-Id")
-	if nodeID == "" {
-		// Fallback to remote address
-		nodeID = r.RemoteAddr
+	// Check if tsServer is initialized (may be nil in tests)
+	if tsServer == nil {
+		// In test mode, use remote address as fallback
+		return &WhoIsInfo{
+			NodeID:   r.RemoteAddr,
+			NodeName: "test-node",
+			UserID:   "test-user",
+		}, nil
 	}
-	
-	nodeName := r.Header.Get("X-Tailscale-Node-Name")
-	if nodeName == "" {
-		nodeName = "unknown"
+
+	// Get the LocalClient to query the WhoIs API
+	lc, err := tsServer.LocalClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get local client: %w", err)
 	}
-	
-	userID := r.Header.Get("X-Tailscale-User-Id")
-	
+
+	// Get the remote address from the request
+	remoteAddr := r.RemoteAddr
+	if remoteAddr == "" {
+		return nil, fmt.Errorf("no remote address in request")
+	}
+
+	// Query the WhoIs API to get secure node identity
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	whois, err := lc.WhoIs(ctx, remoteAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query WhoIs: %w", err)
+	}
+
+	// Extract node and user information
+	nodeID := ""
+	nodeName := ""
+	userID := ""
+
+	if whois.Node != nil {
+		nodeID = fmt.Sprintf("%d", whois.Node.ID)
+		nodeName = whois.Node.Name
+	}
+
+	if whois.UserProfile != nil {
+		userID = fmt.Sprintf("%d", whois.UserProfile.ID)
+	}
+
 	return &WhoIsInfo{
 		NodeID:   nodeID,
 		NodeName: nodeName,
