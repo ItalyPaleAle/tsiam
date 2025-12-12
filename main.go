@@ -31,7 +31,6 @@ const (
 var (
 	// CLI flags
 	signingAlgorithm = flag.String("algorithm", "RS256", "Signing algorithm: RS256, ES256, ES384, ES512, EdDSA")
-	ecdsaCurve       = flag.String("curve", "P-256", "ECDSA curve for ES algorithms: P-256, P-384, P-521")
 	
 	// Keys and config
 	signingKey jwk.Key
@@ -49,7 +48,7 @@ type WhoIsInfo struct {
 	UserID   string
 }
 
-func generateSigningKey(alg string, curve string) error {
+func generateSigningKey(alg string) error {
 	// Generate a key ID
 	keyID = fmt.Sprintf("key-%d", time.Now().Unix())
 
@@ -77,22 +76,6 @@ func generateSigningKey(alg string, curve string) error {
 		case "ES512":
 			algorithm = jwa.ES512()
 			ecCurve = elliptic.P521()
-		}
-		
-		// Allow override with curve parameter for ES256
-		if alg == "ES256" && curve != "" {
-			switch curve {
-			case "P-256":
-				ecCurve = elliptic.P256()
-			case "P-384":
-				ecCurve = elliptic.P384()
-				algorithm = jwa.ES384()
-			case "P-521":
-				ecCurve = elliptic.P521()
-				algorithm = jwa.ES512()
-			default:
-				return fmt.Errorf("unsupported curve: %s", curve)
-			}
 		}
 		
 		ecKey, err := ecdsa.GenerateKey(ecCurve, rand.Reader)
@@ -143,7 +126,7 @@ func main() {
 	flag.Parse()
 
 	// Generate signing key based on algorithm
-	if err := generateSigningKey(*signingAlgorithm, *ecdsaCurve); err != nil {
+	if err := generateSigningKey(*signingAlgorithm); err != nil {
 		log.Fatalf("Failed to generate signing key: %v", err)
 	}
 	log.Printf("Using signing algorithm: %s", algorithm)

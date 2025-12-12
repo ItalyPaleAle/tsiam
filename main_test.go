@@ -13,7 +13,7 @@ import (
 
 func init() {
 	// Initialize test keys
-	if err := generateSigningKey("RS256", ""); err != nil {
+	if err := generateSigningKey("RS256"); err != nil {
 		panic(err)
 	}
 }
@@ -172,7 +172,7 @@ func TestHandleRoot_NotFound(t *testing.T) {
 }
 
 func TestGenerateSigningKey_ES256(t *testing.T) {
-	err := generateSigningKey("ES256", "P-256")
+	err := generateSigningKey("ES256")
 	if err != nil {
 		t.Fatalf("Failed to generate ES256 key: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestGenerateSigningKey_ES256(t *testing.T) {
 }
 
 func TestGenerateSigningKey_ES384(t *testing.T) {
-	err := generateSigningKey("ES384", "P-384")
+	err := generateSigningKey("ES384")
 	if err != nil {
 		t.Fatalf("Failed to generate ES384 key: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestGenerateSigningKey_ES384(t *testing.T) {
 }
 
 func TestGenerateSigningKey_ES512(t *testing.T) {
-	err := generateSigningKey("ES512", "P-521")
+	err := generateSigningKey("ES512")
 	if err != nil {
 		t.Fatalf("Failed to generate ES512 key: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestGenerateSigningKey_ES512(t *testing.T) {
 }
 
 func TestGenerateSigningKey_EdDSA(t *testing.T) {
-	err := generateSigningKey("EdDSA", "")
+	err := generateSigningKey("EdDSA")
 	if err != nil {
 		t.Fatalf("Failed to generate EdDSA key: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestGenerateSigningKey_EdDSA(t *testing.T) {
 }
 
 func TestGenerateSigningKey_UnsupportedAlgorithm(t *testing.T) {
-	err := generateSigningKey("HS256", "")
+	err := generateSigningKey("HS256")
 	if err == nil {
 		t.Error("Expected error for unsupported algorithm")
 	}
