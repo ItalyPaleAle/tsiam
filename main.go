@@ -36,6 +36,7 @@ var (
 	// CLI flags
 	signingAlgorithm = flag.String("algorithm", "RS256", "Signing algorithm: RS256, ES256, ES384, ES512, EdDSA")
 	eddsaCurve       = flag.String("curve", "ed25519", "Curve for EdDSA algorithm: ed25519")
+	keyStoragePath   = flag.String("key-storage-path", "", "Path to store signing key (optional, key will be ephemeral if not set)")
 	
 	// Keys and config
 	signingKey   jwk.Key
@@ -45,6 +46,7 @@ var (
 	issuerURL    string
 	algorithm    jwa.SignatureAlgorithm
 	cachedJWKS   []byte // Cached JSON-encoded JWKS
+	keyStorage   KeyStorage
 )
 
 // WhoIsInfo contains information about the Tailscale node making the request
@@ -139,15 +141,23 @@ func generateSigningKey(alg string, curve string) error {
 	}
 
 	// Cache the JWKS JSON
+	if err := cacheJWKS(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func cacheJWKS() error {
 	set := jwk.NewSet()
 	if err := set.AddKey(publicKey); err != nil {
 		return fmt.Errorf("failed to add key to JWKS set: %w", err)
 	}
+	var err error
 	cachedJWKS, err = json.Marshal(set)
 	if err != nil {
 		return fmt.Errorf("failed to marshal JWKS: %w", err)
 	}
-
 	return nil
 }
 
@@ -155,11 +165,67 @@ func main() {
 	// Parse CLI flags
 	flag.Parse()
 
-	// Generate signing key based on algorithm
-	if err := generateSigningKey(*signingAlgorithm, *eddsaCurve); err != nil {
-		log.Fatalf("Failed to generate signing key: %v", err)
+	ctx := context.Background()
+
+	// Initialize key storage if path is provided
+	if *keyStoragePath != "" {
+		var err error
+		keyStorage, err = NewFileKeyStorage(*keyStoragePath)
+		if err != nil {
+			log.Fatalf("Failed to initialize key storage: %v", err)
+		}
+		
+		// Try to load existing key
+		loadedKey, err := keyStorage.Load(ctx)
+		if err != nil {
+			log.Fatalf("Failed to load key from storage: %v", err)
+		}
+		
+		if loadedKey != nil {
+			// Use existing key
+			signingKey = loadedKey
+			log.Printf("Loaded existing signing key from %s", *keyStoragePath)
+			
+			// Extract algorithm and key ID from loaded key
+			if alg, ok := signingKey.Algorithm(); ok {
+				algorithm = alg.(jwa.SignatureAlgorithm)
+			}
+			if kid, ok := signingKey.KeyID(); ok {
+				keyID = kid
+			}
+			
+			// Generate public key
+			var err error
+			publicKey, err = signingKey.PublicKey()
+			if err != nil {
+				log.Fatalf("Failed to get public key: %v", err)
+			}
+			
+			// Cache JWKS
+			if err := cacheJWKS(); err != nil {
+				log.Fatalf("Failed to cache JWKS: %v", err)
+			}
+		} else {
+			// Generate new key
+			if err := generateSigningKey(*signingAlgorithm, *eddsaCurve); err != nil {
+				log.Fatalf("Failed to generate signing key: %v", err)
+			}
+			
+			// Persist the new key
+			if err := keyStorage.Store(ctx, signingKey); err != nil {
+				log.Fatalf("Failed to store key: %v", err)
+			}
+			log.Printf("Generated and stored new signing key to %s", *keyStoragePath)
+		}
+	} else {
+		// Generate ephemeral key
+		if err := generateSigningKey(*signingAlgorithm, *eddsaCurve); err != nil {
+			log.Fatalf("Failed to generate signing key: %v", err)
+		}
+		log.Printf("Using ephemeral signing key (will not persist across restarts)")
 	}
-	log.Printf("Using signing algorithm: %s", algorithm)
+	
+	log.Printf("Using signing algorithm: %s with key ID: %s", algorithm, keyID)
 
 	// Initialize tsnet server
 	hostname := os.Getenv("TSIAM_HOSTNAME")

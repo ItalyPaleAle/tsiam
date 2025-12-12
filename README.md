@@ -83,6 +83,9 @@ TSIAM_HOSTNAME=my-identity-service ./tsiam
 
 # Use EdDSA algorithm with explicit curve parameter
 ./tsiam -algorithm EdDSA -curve ed25519
+
+# Persist signing key to disk (key will be reused across restarts)
+./tsiam -key-storage-path /var/lib/tsiam/signing-key.json
 ```
 
 On first run, you'll be prompted to authenticate with Tailscale. The service will then be available at `https://<hostname>` within your tailnet.
@@ -124,11 +127,17 @@ curl https://tsiam/.well-known/jwks.json
 - `-curve`: Curve for EdDSA algorithm (default: `ed25519`)
   - `ed25519`: Ed25519 curve (currently the only supported curve for EdDSA)
 
+- `-key-storage-path`: Path to persist signing key (optional)
+  - If not specified, the key will be ephemeral and regenerated on each restart
+  - If specified, the key will be saved to the file and reused across restarts
+  - Example: `-key-storage-path /var/lib/tsiam/signing-key.json`
+
 Note: ECDSA curves are automatically selected based on the algorithm (ES256→P-256, ES384→P-384, ES512→P-521).
 
 ## Security Considerations
 
-- The service generates a new signing keypair on startup based on the chosen algorithm. Keys are ephemeral and not persisted between restarts.
+- By default, the service generates ephemeral signing keys on startup. Use `-key-storage-path` to persist keys across restarts.
+- When using `-key-storage-path`, ensure the file is stored securely with appropriate file permissions (600).
 - JWTs are valid for 1 hour by default.
 - The service only listens within your Tailscale network and is not exposed to the public internet.
 - Node identity is cryptographically verified using Tailscale's WhoIs API and cannot be spoofed.
@@ -136,6 +145,16 @@ Note: ECDSA curves are automatically selected based on the algorithm (ES256→P-
   - **RS256**: RSA with 2048-bit keys (default, widely compatible)
   - **ES256/ES384/ES512**: ECDSA with various curves (smaller keys, better performance)
   - **EdDSA**: Ed25519 (modern, fast, compact signatures)
+  
+### Key Storage Options
+
+The service supports multiple key storage backends via the `KeyStorage` interface:
+
+- **File Storage** (implemented): Store keys as JSON files on local disk
+- **Azure Key Vault Keys** (TODO): Wrap keys with Azure Key Vault managed keys
+- **Azure Key Vault Secrets** (TODO): Store keys in Azure Key Vault secrets
+
+To implement additional storage backends, implement the `KeyStorage` interface in `keystorage.go`.
 
 ## License
 
