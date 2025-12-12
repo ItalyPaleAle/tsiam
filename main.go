@@ -26,6 +26,8 @@ const (
 	defaultTokenLifetime = 3600
 	// Timeout for WhoIs API calls
 	whoIsTimeout = 5 * time.Second
+	// RSA key size in bits
+	rsaKeySize = 2048
 )
 
 var (
@@ -58,27 +60,31 @@ func generateSigningKey(alg string) error {
 	switch alg {
 	case "RS256":
 		algorithm = jwa.RS256()
-		rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		rsaKey, err := rsa.GenerateKey(rand.Reader, rsaKeySize)
 		if err != nil {
 			return fmt.Errorf("failed to generate RSA key: %w", err)
 		}
 		rawKey = rsaKey
 
-	case "ES256", "ES384", "ES512":
-		var ecCurve elliptic.Curve
-		switch alg {
-		case "ES256":
-			algorithm = jwa.ES256()
-			ecCurve = elliptic.P256()
-		case "ES384":
-			algorithm = jwa.ES384()
-			ecCurve = elliptic.P384()
-		case "ES512":
-			algorithm = jwa.ES512()
-			ecCurve = elliptic.P521()
+	case "ES256":
+		algorithm = jwa.ES256()
+		ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			return fmt.Errorf("failed to generate ECDSA key: %w", err)
 		}
-		
-		ecKey, err := ecdsa.GenerateKey(ecCurve, rand.Reader)
+		rawKey = ecKey
+
+	case "ES384":
+		algorithm = jwa.ES384()
+		ecKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+		if err != nil {
+			return fmt.Errorf("failed to generate ECDSA key: %w", err)
+		}
+		rawKey = ecKey
+
+	case "ES512":
+		algorithm = jwa.ES512()
+		ecKey, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
 		if err != nil {
 			return fmt.Errorf("failed to generate ECDSA key: %w", err)
 		}
