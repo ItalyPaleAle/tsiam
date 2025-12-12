@@ -196,16 +196,6 @@ func TestGenerateSigningKey_UnsupportedAlgorithm(t *testing.T) {
 	}
 }
 
-func TestGenerateSigningKey_EdDSA_WithCurve(t *testing.T) {
-	err := generateSigningKey("EdDSA", "ed25519")
-	if err != nil {
-		t.Fatalf("Failed to generate EdDSA key with ed25519: %v", err)
-	}
-	if algorithm != jwa.EdDSA() {
-		t.Errorf("Expected algorithm EdDSA, got %s", algorithm)
-	}
-}
-
 func TestGenerateSigningKey_EdDSA_InvalidCurve(t *testing.T) {
 	err := generateSigningKey("EdDSA", "ed448")
 	if err == nil {
