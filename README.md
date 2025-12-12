@@ -63,11 +63,26 @@ go build -o tsiam .
 ### Run
 
 ```bash
-# Run with default hostname "tsiam"
+# Run with default settings (RS256 algorithm)
 ./tsiam
 
-# Or specify a custom hostname
+# Specify a custom hostname
 TSIAM_HOSTNAME=my-identity-service ./tsiam
+
+# Use ES256 algorithm (ECDSA with P-256 curve)
+./tsiam -algorithm ES256
+
+# Use ES384 algorithm (ECDSA with P-384 curve)
+./tsiam -algorithm ES384
+
+# Use ES512 algorithm (ECDSA with P-521 curve)
+./tsiam -algorithm ES512
+
+# Use EdDSA algorithm (Ed25519)
+./tsiam -algorithm EdDSA
+
+# Override ECDSA curve for ES256
+./tsiam -algorithm ES256 -curve P-384
 ```
 
 On first run, you'll be prompted to authenticate with Tailscale. The service will then be available at `https://<hostname>` within your tailnet.
@@ -93,16 +108,34 @@ curl https://tsiam/.well-known/jwks.json
 
 ## Configuration
 
-Configure via environment variables:
+### Environment Variables
 
 - `TSIAM_HOSTNAME`: The hostname for the tsnet service (default: `tsiam`)
 
+### Command-Line Flags
+
+- `-algorithm`: Signing algorithm for JWTs (default: `RS256`)
+  - `RS256`: RSA with SHA-256 (2048-bit key)
+  - `ES256`: ECDSA with P-256 curve and SHA-256
+  - `ES384`: ECDSA with P-384 curve and SHA-384
+  - `ES512`: ECDSA with P-521 curve and SHA-512
+  - `EdDSA`: Ed25519 signature algorithm
+
+- `-curve`: ECDSA curve for ES algorithms (default: `P-256`)
+  - `P-256`: NIST P-256 curve (used with ES256)
+  - `P-384`: NIST P-384 curve (used with ES384)
+  - `P-521`: NIST P-521 curve (used with ES512)
+
 ## Security Considerations
 
-- The service generates a new RSA keypair on startup. Keys are not persisted between restarts.
+- The service generates a new signing keypair on startup based on the chosen algorithm. Keys are ephemeral and not persisted between restarts.
 - JWTs are valid for 1 hour by default.
 - The service only listens within your Tailscale network and is not exposed to the public internet.
-- Node identity is derived from the Tailscale connection metadata.
+- Node identity is cryptographically verified using Tailscale's WhoIs API and cannot be spoofed.
+- Supported algorithms:
+  - **RS256**: RSA with 2048-bit keys (default, widely compatible)
+  - **ES256/ES384/ES512**: ECDSA with various curves (smaller keys, better performance)
+  - **EdDSA**: Ed25519 (modern, fast, compact signatures)
 
 ## License
 

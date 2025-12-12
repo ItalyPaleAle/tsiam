@@ -2,18 +2,22 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
-	"encoding/base64"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
-	"math/big"
 	"net/http"
 	"os"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/lestrrat-go/jwx/v3/jwa"
+	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v3/jwt"
 	"tailscale.com/tsnet"
 )
 
@@ -25,50 +29,125 @@ const (
 )
 
 var (
-	privateKey *rsa.PrivateKey
-	publicKey  *rsa.PublicKey
+	// CLI flags
+	signingAlgorithm = flag.String("algorithm", "RS256", "Signing algorithm: RS256, ES256, ES384, ES512, EdDSA")
+	ecdsaCurve       = flag.String("curve", "P-256", "ECDSA curve for ES algorithms: P-256, P-384, P-521")
+	
+	// Keys and config
+	signingKey jwk.Key
+	publicKey  jwk.Key
 	keyID      string
 	tsServer   *tsnet.Server
 	issuerURL  string
+	algorithm  jwa.SignatureAlgorithm
 )
 
-// JWKSResponse represents the JWKS response structure
-type JWKSResponse struct {
-	Keys []JWK `json:"keys"`
+// WhoIsInfo contains information about the Tailscale node making the request
+type WhoIsInfo struct {
+	NodeID   string
+	NodeName string
+	UserID   string
 }
 
-// JWK represents a JSON Web Key
-type JWK struct {
-	Kid string `json:"kid"`
-	Kty string `json:"kty"`
-	Alg string `json:"alg"`
-	Use string `json:"use"`
-	N   string `json:"n"`
-	E   string `json:"e"`
-}
-
-// TokenClaims represents the JWT claims
-type TokenClaims struct {
-	jwt.RegisteredClaims
-	NodeID   string `json:"node_id"`
-	NodeName string `json:"node_name"`
-	UserID   string `json:"user_id,omitempty"`
-}
-
-func init() {
-	// Generate RSA keypair for signing JWTs
-	var err error
-	privateKey, err = rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		log.Fatalf("Failed to generate RSA key: %v", err)
-	}
-	publicKey = &privateKey.PublicKey
-
+func generateSigningKey(alg string, curve string) error {
 	// Generate a key ID
 	keyID = fmt.Sprintf("key-%d", time.Now().Unix())
+
+	var err error
+	var rawKey interface{}
+
+	switch alg {
+	case "RS256":
+		algorithm = jwa.RS256()
+		rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return fmt.Errorf("failed to generate RSA key: %w", err)
+		}
+		rawKey = rsaKey
+
+	case "ES256", "ES384", "ES512":
+		var ecCurve elliptic.Curve
+		switch alg {
+		case "ES256":
+			algorithm = jwa.ES256()
+			ecCurve = elliptic.P256()
+		case "ES384":
+			algorithm = jwa.ES384()
+			ecCurve = elliptic.P384()
+		case "ES512":
+			algorithm = jwa.ES512()
+			ecCurve = elliptic.P521()
+		}
+		
+		// Allow override with curve parameter for ES256
+		if alg == "ES256" && curve != "" {
+			switch curve {
+			case "P-256":
+				ecCurve = elliptic.P256()
+			case "P-384":
+				ecCurve = elliptic.P384()
+				algorithm = jwa.ES384()
+			case "P-521":
+				ecCurve = elliptic.P521()
+				algorithm = jwa.ES512()
+			default:
+				return fmt.Errorf("unsupported curve: %s", curve)
+			}
+		}
+		
+		ecKey, err := ecdsa.GenerateKey(ecCurve, rand.Reader)
+		if err != nil {
+			return fmt.Errorf("failed to generate ECDSA key: %w", err)
+		}
+		rawKey = ecKey
+
+	case "EdDSA":
+		algorithm = jwa.EdDSA()
+		_, edKey, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return fmt.Errorf("failed to generate EdDSA key: %w", err)
+		}
+		rawKey = edKey
+
+	default:
+		return fmt.Errorf("unsupported algorithm: %s", alg)
+	}
+
+	// Create JWK from the raw key
+	signingKey, err = jwk.Import(rawKey)
+	if err != nil {
+		return fmt.Errorf("failed to import signing key: %w", err)
+	}
+
+	// Set key ID
+	if err := signingKey.Set(jwk.KeyIDKey, keyID); err != nil {
+		return fmt.Errorf("failed to set key ID: %w", err)
+	}
+
+	// Set algorithm
+	if err := signingKey.Set(jwk.AlgorithmKey, algorithm); err != nil {
+		return fmt.Errorf("failed to set algorithm: %w", err)
+	}
+
+	// Create public key
+	publicKey, err = signingKey.PublicKey()
+	if err != nil {
+		return fmt.Errorf("failed to get public key: %w", err)
+	}
+
+	return nil
 }
 
 func main() {
+	// Parse CLI flags
+	flag.Parse()
+
+	// Generate signing key based on algorithm
+	if err := generateSigningKey(*signingAlgorithm, *ecdsaCurve); err != nil {
+		log.Fatalf("Failed to generate signing key: %v", err)
+	}
+	log.Printf("Using signing algorithm: %s", algorithm)
+
 	// Initialize tsnet server
 	hostname := os.Getenv("TSIAM_HOSTNAME")
 	if hostname == "" {
@@ -125,7 +204,6 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get Tailscale connection info from tsnet
-	// The tsnet.Server provides the underlying connection which includes peer info
 	who, err := getTailscaleWhoIs(r)
 	if err != nil {
 		log.Printf("Failed to get Tailscale identity: %v", err)
@@ -133,27 +211,27 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create JWT claims
+	// Create JWT token
 	now := time.Now()
-	claims := TokenClaims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    issuerURL,
-			Subject:   who.NodeID,
-			Audience:  jwt.ClaimStrings{"tsiam"},
-			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(defaultTokenLifetime) * time.Second)),
-			NotBefore: jwt.NewNumericDate(now),
-			IssuedAt:  jwt.NewNumericDate(now),
-		},
-		NodeID:   who.NodeID,
-		NodeName: who.NodeName,
-		UserID:   who.UserID,
+	token, err := jwt.NewBuilder().
+		Issuer(issuerURL).
+		Subject(who.NodeID).
+		Audience([]string{"tsiam"}).
+		IssuedAt(now).
+		NotBefore(now).
+		Expiration(now.Add(time.Duration(defaultTokenLifetime) * time.Second)).
+		Claim("node_id", who.NodeID).
+		Claim("node_name", who.NodeName).
+		Claim("user_id", who.UserID).
+		Build()
+	if err != nil {
+		log.Printf("Failed to build token: %v", err)
+		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+		return
 	}
 
-	// Create and sign the token
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	token.Header["kid"] = keyID
-
-	tokenString, err := token.SignedString(privateKey)
+	// Sign the token
+	signed, err := jwt.Sign(token, jwt.WithKey(algorithm, signingKey))
 	if err != nil {
 		log.Printf("Failed to sign token: %v", err)
 		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
@@ -162,11 +240,14 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 
 	// Return the token
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"access_token": tokenString,
+	response := map[string]interface{}{
+		"access_token": string(signed),
 		"token_type":   "Bearer",
 		"expires_in":   defaultTokenLifetime,
-	})
+	}
+	if err := writeJSON(w, response); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
 }
 
 func handleJWKS(w http.ResponseWriter, r *http.Request) {
@@ -175,32 +256,33 @@ func handleJWKS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert public key to JWK format
-	n := publicKey.N.Bytes()
-	e := big.NewInt(int64(publicKey.E)).Bytes()
-
-	jwk := JWK{
-		Kid: keyID,
-		Kty: "RSA",
-		Alg: "RS256",
-		Use: "sig",
-		N:   base64.RawURLEncoding.EncodeToString(n),
-		E:   base64.RawURLEncoding.EncodeToString(e),
-	}
-
-	response := JWKSResponse{
-		Keys: []JWK{jwk},
+	// Create JWKS with the public key
+	set := jwk.NewSet()
+	if err := set.AddKey(publicKey); err != nil {
+		log.Printf("Failed to add key to set: %v", err)
+		http.Error(w, "Failed to generate JWKS", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := writeJSON(w, set); err != nil {
+		log.Printf("Failed to write JWKS: %v", err)
+	}
 }
 
-// WhoIsInfo contains information about the Tailscale node making the request
-type WhoIsInfo struct {
-	NodeID   string
-	NodeName string
-	UserID   string
+// writeJSON is a helper to write JSON responses
+func writeJSON(w http.ResponseWriter, v interface{}) error {
+	// Check if it's a jwk.Set - use standard json marshaling
+	if set, ok := v.(jwk.Set); ok {
+		data, err := json.Marshal(set)
+		if err != nil {
+			return err
+		}
+		_, err = w.Write(data)
+		return err
+	}
+	// For other types, use standard json encoding
+	return json.NewEncoder(w).Encode(v)
 }
 
 func getTailscaleWhoIs(r *http.Request) (*WhoIsInfo, error) {

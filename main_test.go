@@ -6,8 +6,17 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/lestrrat-go/jwx/v3/jwa"
+	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v3/jwt"
 )
+
+func init() {
+	// Initialize test keys
+	if err := generateSigningKey("RS256", ""); err != nil {
+		panic(err)
+	}
+}
 
 func TestHandleJWKS(t *testing.T) {
 	// Create a request to the JWKS endpoint
@@ -22,36 +31,36 @@ func TestHandleJWKS(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
 
-	// Parse the response
-	var response JWKSResponse
-	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
+	// Parse the response as JWK Set
+	set, err := jwk.Parse(w.Body.Bytes())
+	if err != nil {
+		t.Fatalf("Failed to parse JWKS: %v", err)
 	}
 
 	// Verify the response has keys
-	if len(response.Keys) == 0 {
+	if set.Len() == 0 {
 		t.Error("Expected at least one key in JWKS response")
 	}
 
+	// Get the first key
+	key, ok := set.Key(0)
+	if !ok {
+		t.Fatal("Failed to get key from set")
+	}
+
 	// Verify key properties
-	key := response.Keys[0]
-	if key.Kty != "RSA" {
-		t.Errorf("Expected key type RSA, got %s", key.Kty)
+	if key.KeyType() != jwa.RSA() {
+		t.Errorf("Expected key type RSA, got %s", key.KeyType())
 	}
-	if key.Alg != "RS256" {
-		t.Errorf("Expected algorithm RS256, got %s", key.Alg)
+	alg, ok := key.Algorithm()
+	if !ok {
+		t.Error("Expected algorithm to be set")
+	} else if alg != jwa.RS256() {
+		t.Errorf("Expected algorithm RS256, got %s", alg)
 	}
-	if key.Use != "sig" {
-		t.Errorf("Expected key use 'sig', got %s", key.Use)
-	}
-	if key.Kid == "" {
+	kid, ok := key.KeyID()
+	if !ok || kid == "" {
 		t.Error("Expected kid to be set")
-	}
-	if key.N == "" {
-		t.Error("Expected N (modulus) to be set")
-	}
-	if key.E == "" {
-		t.Error("Expected E (exponent) to be set")
 	}
 }
 
@@ -118,20 +127,25 @@ func TestHandleToken(t *testing.T) {
 
 	// Try to parse the JWT (should be valid format)
 	tokenString := response["access_token"].(string)
-	token, _, err := jwt.NewParser().ParseUnverified(tokenString, &TokenClaims{})
+	token, err := jwt.Parse([]byte(tokenString), jwt.WithVerify(false))
 	if err != nil {
 		t.Fatalf("Failed to parse JWT: %v", err)
 	}
 
 	// Verify claims exist
-	claims, ok := token.Claims.(*TokenClaims)
-	if !ok {
-		t.Fatal("Failed to cast claims")
-	}
-
-	// Basic validation
-	if claims.Issuer == "" {
+	issuer, ok := token.Issuer()
+	if !ok || issuer == "" {
 		t.Error("Expected issuer to be set")
+	}
+	subject, ok := token.Subject()
+	if !ok || subject == "" {
+		t.Error("Expected subject to be set")
+	}
+	
+	// Check custom claims
+	var nodeID string
+	if err := token.Get("node_id", &nodeID); err != nil {
+		t.Error("Expected node_id claim")
 	}
 }
 
@@ -154,5 +168,52 @@ func TestHandleRoot_NotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("Expected status 404, got %d", w.Code)
+	}
+}
+
+func TestGenerateSigningKey_ES256(t *testing.T) {
+	err := generateSigningKey("ES256", "P-256")
+	if err != nil {
+		t.Fatalf("Failed to generate ES256 key: %v", err)
+	}
+	if algorithm != jwa.ES256() {
+		t.Errorf("Expected algorithm ES256, got %s", algorithm)
+	}
+}
+
+func TestGenerateSigningKey_ES384(t *testing.T) {
+	err := generateSigningKey("ES384", "P-384")
+	if err != nil {
+		t.Fatalf("Failed to generate ES384 key: %v", err)
+	}
+	if algorithm != jwa.ES384() {
+		t.Errorf("Expected algorithm ES384, got %s", algorithm)
+	}
+}
+
+func TestGenerateSigningKey_ES512(t *testing.T) {
+	err := generateSigningKey("ES512", "P-521")
+	if err != nil {
+		t.Fatalf("Failed to generate ES512 key: %v", err)
+	}
+	if algorithm != jwa.ES512() {
+		t.Errorf("Expected algorithm ES512, got %s", algorithm)
+	}
+}
+
+func TestGenerateSigningKey_EdDSA(t *testing.T) {
+	err := generateSigningKey("EdDSA", "")
+	if err != nil {
+		t.Fatalf("Failed to generate EdDSA key: %v", err)
+	}
+	if algorithm != jwa.EdDSA() {
+		t.Errorf("Expected algorithm EdDSA, got %s", algorithm)
+	}
+}
+
+func TestGenerateSigningKey_UnsupportedAlgorithm(t *testing.T) {
+	err := generateSigningKey("HS256", "")
+	if err == nil {
+		t.Error("Expected error for unsupported algorithm")
 	}
 }
