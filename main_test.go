@@ -83,6 +83,9 @@ func TestHandleRoot(t *testing.T) {
 }
 
 func TestHandleToken(t *testing.T) {
+	// Set issuer URL for test
+	issuerURL = "https://test-tsiam"
+	
 	req := httptest.NewRequest(http.MethodGet, "/token", nil)
 	w := httptest.NewRecorder()
 
@@ -94,7 +97,7 @@ func TestHandleToken(t *testing.T) {
 	}
 
 	// Parse the response
-	var response map[string]string
+	var response map[string]interface{}
 	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
@@ -106,12 +109,14 @@ func TestHandleToken(t *testing.T) {
 	if response["token_type"] != "Bearer" {
 		t.Errorf("Expected token_type 'Bearer', got %s", response["token_type"])
 	}
-	if response["expires_in"] != "3600" {
-		t.Errorf("Expected expires_in '3600', got %s", response["expires_in"])
+	
+	expiresIn, ok := response["expires_in"].(float64)
+	if !ok || expiresIn != defaultTokenLifetime {
+		t.Errorf("Expected expires_in '%d', got %v", defaultTokenLifetime, response["expires_in"])
 	}
 
 	// Try to parse the JWT (should be valid format)
-	tokenString := response["access_token"]
+	tokenString := response["access_token"].(string)
 	token, _, err := jwt.NewParser().ParseUnverified(tokenString, &TokenClaims{})
 	if err != nil {
 		t.Fatalf("Failed to parse JWT: %v", err)

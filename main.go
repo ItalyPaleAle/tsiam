@@ -17,11 +17,19 @@ import (
 	"tailscale.com/tsnet"
 )
 
+const (
+	// Default token lifetime in seconds
+	defaultTokenLifetime = 3600
+	// Timeout for WhoIs API calls
+	whoIsTimeout = 5 * time.Second
+)
+
 var (
 	privateKey *rsa.PrivateKey
 	publicKey  *rsa.PublicKey
 	keyID      string
 	tsServer   *tsnet.Server
+	issuerURL  string
 )
 
 // JWKSResponse represents the JWKS response structure
@@ -66,6 +74,9 @@ func main() {
 	if hostname == "" {
 		hostname = "tsiam"
 	}
+
+	// Set the issuer URL based on hostname
+	issuerURL = fmt.Sprintf("https://%s", hostname)
 
 	tsServer = &tsnet.Server{
 		Hostname: hostname,
@@ -126,10 +137,10 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	claims := TokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    "https://tsiam.tailnet.ts.net",
+			Issuer:    issuerURL,
 			Subject:   who.NodeID,
 			Audience:  jwt.ClaimStrings{"tsiam"},
-			ExpiresAt: jwt.NewNumericDate(now.Add(1 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(defaultTokenLifetime) * time.Second)),
 			NotBefore: jwt.NewNumericDate(now),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
@@ -151,10 +162,10 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 
 	// Return the token
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"access_token": tokenString,
 		"token_type":   "Bearer",
-		"expires_in":   "3600",
+		"expires_in":   defaultTokenLifetime,
 	})
 }
 
@@ -216,7 +227,7 @@ func getTailscaleWhoIs(r *http.Request) (*WhoIsInfo, error) {
 	}
 
 	// Query the WhoIs API to get secure node identity
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), whoIsTimeout)
 	defer cancel()
 
 	whois, err := lc.WhoIs(ctx, remoteAddr)
