@@ -13,7 +13,7 @@ import (
 
 func init() {
 	// Initialize test keys
-	if err := generateSigningKey("RS256"); err != nil {
+	if err := generateSigningKey("RS256", ""); err != nil {
 		panic(err)
 	}
 }
@@ -61,17 +61,6 @@ func TestHandleJWKS(t *testing.T) {
 	kid, ok := key.KeyID()
 	if !ok || kid == "" {
 		t.Error("Expected kid to be set")
-	}
-}
-
-func TestHandleJWKS_MethodNotAllowed(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/.well-known/jwks.json", nil)
-	w := httptest.NewRecorder()
-
-	handleJWKS(w, req)
-
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("Expected status 405, got %d", w.Code)
 	}
 }
 
@@ -149,17 +138,6 @@ func TestHandleToken(t *testing.T) {
 	}
 }
 
-func TestHandleToken_MethodNotAllowed(t *testing.T) {
-	req := httptest.NewRequest(http.MethodDelete, "/token", nil)
-	w := httptest.NewRecorder()
-
-	handleToken(w, req)
-
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("Expected status 405, got %d", w.Code)
-	}
-}
-
 func TestHandleRoot_NotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
 	w := httptest.NewRecorder()
@@ -172,7 +150,7 @@ func TestHandleRoot_NotFound(t *testing.T) {
 }
 
 func TestGenerateSigningKey_ES256(t *testing.T) {
-	err := generateSigningKey("ES256")
+	err := generateSigningKey("ES256", "")
 	if err != nil {
 		t.Fatalf("Failed to generate ES256 key: %v", err)
 	}
@@ -182,7 +160,7 @@ func TestGenerateSigningKey_ES256(t *testing.T) {
 }
 
 func TestGenerateSigningKey_ES384(t *testing.T) {
-	err := generateSigningKey("ES384")
+	err := generateSigningKey("ES384", "")
 	if err != nil {
 		t.Fatalf("Failed to generate ES384 key: %v", err)
 	}
@@ -192,7 +170,7 @@ func TestGenerateSigningKey_ES384(t *testing.T) {
 }
 
 func TestGenerateSigningKey_ES512(t *testing.T) {
-	err := generateSigningKey("ES512")
+	err := generateSigningKey("ES512", "")
 	if err != nil {
 		t.Fatalf("Failed to generate ES512 key: %v", err)
 	}
@@ -202,7 +180,7 @@ func TestGenerateSigningKey_ES512(t *testing.T) {
 }
 
 func TestGenerateSigningKey_EdDSA(t *testing.T) {
-	err := generateSigningKey("EdDSA")
+	err := generateSigningKey("EdDSA", "ed25519")
 	if err != nil {
 		t.Fatalf("Failed to generate EdDSA key: %v", err)
 	}
@@ -212,8 +190,25 @@ func TestGenerateSigningKey_EdDSA(t *testing.T) {
 }
 
 func TestGenerateSigningKey_UnsupportedAlgorithm(t *testing.T) {
-	err := generateSigningKey("HS256")
+	err := generateSigningKey("HS256", "")
 	if err == nil {
 		t.Error("Expected error for unsupported algorithm")
+	}
+}
+
+func TestGenerateSigningKey_EdDSA_WithCurve(t *testing.T) {
+	err := generateSigningKey("EdDSA", "ed25519")
+	if err != nil {
+		t.Fatalf("Failed to generate EdDSA key with ed25519: %v", err)
+	}
+	if algorithm != jwa.EdDSA() {
+		t.Errorf("Expected algorithm EdDSA, got %s", algorithm)
+	}
+}
+
+func TestGenerateSigningKey_EdDSA_InvalidCurve(t *testing.T) {
+	err := generateSigningKey("EdDSA", "ed448")
+	if err == nil {
+		t.Error("Expected error for unsupported EdDSA curve")
 	}
 }

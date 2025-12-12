@@ -78,8 +78,11 @@ TSIAM_HOSTNAME=my-identity-service ./tsiam
 # Use ES512 algorithm (ECDSA with P-521 curve)
 ./tsiam -algorithm ES512
 
-# Use EdDSA algorithm (Ed25519)
+# Use EdDSA algorithm (Ed25519, default curve)
 ./tsiam -algorithm EdDSA
+
+# Use EdDSA algorithm with explicit curve parameter
+./tsiam -algorithm EdDSA -curve ed25519
 ```
 
 On first run, you'll be prompted to authenticate with Tailscale. The service will then be available at `https://<hostname>` within your tailnet.
@@ -117,6 +120,9 @@ curl https://tsiam/.well-known/jwks.json
   - `ES384`: ECDSA with P-384 curve and SHA-384
   - `ES512`: ECDSA with P-521 curve and SHA-512
   - `EdDSA`: Ed25519 signature algorithm
+
+- `-curve`: Curve for EdDSA algorithm (default: `ed25519`)
+  - `ed25519`: Ed25519 curve (currently the only supported curve for EdDSA)
 
 Note: ECDSA curves are automatically selected based on the algorithm (ES256→P-256, ES384→P-384, ES512→P-521).
 

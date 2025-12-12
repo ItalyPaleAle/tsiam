@@ -7,12 +7,14 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/lestrrat-go/jwx/v3/jwa"
@@ -33,14 +35,16 @@ const (
 var (
 	// CLI flags
 	signingAlgorithm = flag.String("algorithm", "RS256", "Signing algorithm: RS256, ES256, ES384, ES512, EdDSA")
+	eddsaCurve       = flag.String("curve", "ed25519", "Curve for EdDSA algorithm: ed25519")
 	
 	// Keys and config
-	signingKey jwk.Key
-	publicKey  jwk.Key
-	keyID      string
-	tsServer   *tsnet.Server
-	issuerURL  string
-	algorithm  jwa.SignatureAlgorithm
+	signingKey   jwk.Key
+	publicKey    jwk.Key
+	keyID        string
+	tsServer     *tsnet.Server
+	issuerURL    string
+	algorithm    jwa.SignatureAlgorithm
+	cachedJWKS   []byte // Cached JSON-encoded JWKS
 )
 
 // WhoIsInfo contains information about the Tailscale node making the request
@@ -50,9 +54,13 @@ type WhoIsInfo struct {
 	UserID   string
 }
 
-func generateSigningKey(alg string) error {
-	// Generate a key ID
-	keyID = fmt.Sprintf("key-%d", time.Now().Unix())
+func generateSigningKey(alg string, curve string) error {
+	// Generate a random key ID (base64url, no padding)
+	randomBytes := make([]byte, 16)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return fmt.Errorf("failed to generate random key ID: %w", err)
+	}
+	keyID = base64.RawURLEncoding.EncodeToString(randomBytes)
 
 	var err error
 	var rawKey interface{}
@@ -92,6 +100,10 @@ func generateSigningKey(alg string) error {
 
 	case "EdDSA":
 		algorithm = jwa.EdDSA()
+		// Currently only ed25519 is supported
+		if curve != "" && curve != "ed25519" {
+			return fmt.Errorf("unsupported EdDSA curve: %s (only ed25519 is supported)", curve)
+		}
 		_, edKey, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			return fmt.Errorf("failed to generate EdDSA key: %w", err)
@@ -126,6 +138,16 @@ func generateSigningKey(alg string) error {
 		return fmt.Errorf("failed to get public key: %w", err)
 	}
 
+	// Cache the JWKS JSON
+	set := jwk.NewSet()
+	if err := set.AddKey(publicKey); err != nil {
+		return fmt.Errorf("failed to add key to JWKS set: %w", err)
+	}
+	cachedJWKS, err = json.Marshal(set)
+	if err != nil {
+		return fmt.Errorf("failed to marshal JWKS: %w", err)
+	}
+
 	return nil
 }
 
@@ -134,7 +156,7 @@ func main() {
 	flag.Parse()
 
 	// Generate signing key based on algorithm
-	if err := generateSigningKey(*signingAlgorithm); err != nil {
+	if err := generateSigningKey(*signingAlgorithm, *eddsaCurve); err != nil {
 		log.Fatalf("Failed to generate signing key: %v", err)
 	}
 	log.Printf("Using signing algorithm: %s", algorithm)
@@ -238,16 +260,9 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleJWKS(w http.ResponseWriter, r *http.Request) {
-	// Create JWKS with the public key
-	set := jwk.NewSet()
-	if err := set.AddKey(publicKey); err != nil {
-		log.Printf("Failed to add key to set: %v", err)
-		http.Error(w, "Failed to generate JWKS", http.StatusInternalServerError)
-		return
-	}
-
+	// Return cached JWKS
 	w.Header().Set("Content-Type", "application/json")
-	if err := writeJSON(w, set); err != nil {
+	if _, err := w.Write(cachedJWKS); err != nil {
 		log.Printf("Failed to write JWKS: %v", err)
 	}
 }
@@ -291,7 +306,7 @@ func getTailscaleWhoIs(r *http.Request) (*WhoIsInfo, error) {
 	}
 
 	// Query the WhoIs API to get secure node identity
-	ctx, cancel := context.WithTimeout(context.Background(), whoIsTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), whoIsTimeout)
 	defer cancel()
 
 	whois, err := lc.WhoIs(ctx, remoteAddr)
@@ -305,12 +320,12 @@ func getTailscaleWhoIs(r *http.Request) (*WhoIsInfo, error) {
 	userID := ""
 
 	if whois.Node != nil {
-		nodeID = fmt.Sprintf("%d", whois.Node.ID)
+		nodeID = strconv.FormatInt(int64(whois.Node.ID), 10)
 		nodeName = whois.Node.Name
 	}
 
 	if whois.UserProfile != nil {
-		userID = fmt.Sprintf("%d", whois.UserProfile.ID)
+		userID = strconv.FormatInt(int64(whois.UserProfile.ID), 10)
 	}
 
 	return &WhoIsInfo{
