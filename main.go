@@ -187,8 +187,12 @@ func main() {
 			log.Printf("Loaded existing signing key from %s", *keyStoragePath)
 			
 			// Extract algorithm and key ID from loaded key
-			if alg, ok := signingKey.Algorithm(); ok {
-				algorithm = alg.(jwa.SignatureAlgorithm)
+			if loadedAlg, ok := signingKey.Algorithm(); ok {
+				if sigAlg, ok := loadedAlg.(jwa.SignatureAlgorithm); ok {
+					algorithm = sigAlg
+				} else {
+					log.Fatalf("Loaded key has invalid algorithm type")
+				}
 			}
 			if kid, ok := signingKey.KeyID(); ok {
 				keyID = kid
