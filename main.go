@@ -109,12 +109,14 @@ func generateSigningKey(alg string) error {
 	}
 
 	// Set key ID
-	if err := signingKey.Set(jwk.KeyIDKey, keyID); err != nil {
+	err = signingKey.Set(jwk.KeyIDKey, keyID)
+	if err != nil {
 		return fmt.Errorf("failed to set key ID: %w", err)
 	}
 
 	// Set algorithm
-	if err := signingKey.Set(jwk.AlgorithmKey, algorithm); err != nil {
+	err = signingKey.Set(jwk.AlgorithmKey, algorithm)
+	if err != nil {
 		return fmt.Errorf("failed to set algorithm: %w", err)
 	}
 
@@ -163,9 +165,10 @@ func main() {
 
 	// Setup HTTP handlers
 	mux := http.NewServeMux()
-	mux.HandleFunc("/token", handleToken)
-	mux.HandleFunc("/.well-known/jwks.json", handleJWKS)
-	mux.HandleFunc("/", handleRoot)
+	mux.HandleFunc("GET /token", handleToken)
+	mux.HandleFunc("POST /token", handleToken)
+	mux.HandleFunc("GET /.well-known/jwks.json", handleJWKS)
+	mux.HandleFunc("GET /", handleRoot)
 
 	// Start HTTP server
 	if err := http.Serve(ln, mux); err != nil {
@@ -187,11 +190,6 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleToken(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Get Tailscale connection info from tsnet
 	who, err := getTailscaleWhoIs(r)
 	if err != nil {
@@ -240,11 +238,6 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleJWKS(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Create JWKS with the public key
 	set := jwk.NewSet()
 	if err := set.AddKey(publicKey); err != nil {
