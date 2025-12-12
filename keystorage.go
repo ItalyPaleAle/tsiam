@@ -27,7 +27,8 @@ type FileKeyStorage struct {
 func NewFileKeyStorage(path string) (*FileKeyStorage, error) {
 	// Ensure directory exists
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	err := os.MkdirAll(dir, 0700)
+	if err != nil {
 		return nil, fmt.Errorf("failed to create key storage directory: %w", err)
 	}
 	
@@ -41,7 +42,8 @@ func (f *FileKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 	data, err := os.ReadFile(f.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil // Key doesn't exist yet
+			// Key doesn't exist yet
+			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to read key file: %w", err)
 	}
@@ -62,7 +64,8 @@ func (f *FileKeyStorage) Store(ctx context.Context, key jwk.Key) error {
 	}
 
 	// Write with restricted permissions
-	if err := os.WriteFile(f.path, data, 0600); err != nil {
+	err = os.WriteFile(f.path, data, 0600)
+	if err != nil {
 		return fmt.Errorf("failed to write key file: %w", err)
 	}
 

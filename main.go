@@ -141,7 +141,8 @@ func generateSigningKey(alg string, curve string) error {
 	}
 
 	// Cache the JWKS JSON
-	if err := cacheJWKS(); err != nil {
+	err = cacheJWKS()
+	if err != nil {
 		return err
 	}
 
@@ -174,18 +175,18 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to initialize key storage: %v", err)
 		}
-		
+
 		// Try to load existing key
 		loadedKey, err := keyStorage.Load(ctx)
 		if err != nil {
 			log.Fatalf("Failed to load key from storage: %v", err)
 		}
-		
+
 		if loadedKey != nil {
 			// Use existing key
 			signingKey = loadedKey
 			log.Printf("Loaded existing signing key from %s", *keyStoragePath)
-			
+
 			// Extract algorithm and key ID from loaded key
 			if loadedAlg, ok := signingKey.Algorithm(); ok {
 				if sigAlg, ok := loadedAlg.(jwa.SignatureAlgorithm); ok {
@@ -197,9 +198,8 @@ func main() {
 			if kid, ok := signingKey.KeyID(); ok {
 				keyID = kid
 			}
-			
+
 			// Generate public key
-			var err error
 			publicKey, err = signingKey.PublicKey()
 			if err != nil {
 				log.Fatalf("Failed to get public key: %v", err)
@@ -385,9 +385,7 @@ func getTailscaleWhoIs(r *http.Request) (*WhoIsInfo, error) {
 	}
 
 	// Extract node and user information
-	nodeID := ""
-	nodeName := ""
-	userID := ""
+	var nodeID, nodeName, userID string
 
 	if whois.Node != nil {
 		nodeID = strconv.FormatInt(int64(whois.Node.ID), 10)

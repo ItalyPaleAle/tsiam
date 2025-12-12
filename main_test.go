@@ -13,7 +13,8 @@ import (
 
 func init() {
 	// Initialize test keys
-	if err := generateSigningKey("RS256", ""); err != nil {
+	err := generateSigningKey("RS256", "")
+	if err != nil {
 		panic(err)
 	}
 }
