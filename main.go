@@ -37,16 +37,16 @@ var (
 	signingAlgorithm = flag.String("algorithm", "RS256", "Signing algorithm: RS256, ES256, ES384, ES512, EdDSA")
 	eddsaCurve       = flag.String("curve", "ed25519", "Curve for EdDSA algorithm: ed25519")
 	keyStoragePath   = flag.String("key-storage-path", "", "Path to store signing key (optional, key will be ephemeral if not set)")
-	
+
 	// Keys and config
-	signingKey   jwk.Key
-	publicKey    jwk.Key
-	keyID        string
-	tsServer     *tsnet.Server
-	issuerURL    string
-	algorithm    jwa.SignatureAlgorithm
-	cachedJWKS   []byte // Cached JSON-encoded JWKS
-	keyStorage   KeyStorage
+	signingKey jwk.Key
+	publicKey  jwk.Key
+	keyID      string
+	tsServer   *tsnet.Server
+	issuerURL  string
+	algorithm  jwa.SignatureAlgorithm
+	cachedJWKS []byte // Cached JSON-encoded JWKS
+	keyStorage KeyStorage
 )
 
 // WhoIsInfo contains information about the Tailscale node making the request
@@ -56,17 +56,23 @@ type WhoIsInfo struct {
 	UserID   string
 }
 
-func generateSigningKey(alg string, curve string) error {
-	// Generate a random key ID (base64url, no padding)
+func genKid() (string, error) {
 	randomBytes := make([]byte, 16)
-	if _, err := rand.Read(randomBytes); err != nil {
-		return fmt.Errorf("failed to generate random key ID: %w", err)
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random key ID: %w", err)
 	}
-	keyID = base64.RawURLEncoding.EncodeToString(randomBytes)
+	return base64.RawURLEncoding.EncodeToString(randomBytes), nil
+}
 
-	var err error
-	var rawKey interface{}
+func generateSigningKey(alg string, curve string) (err error) {
+	// Generate a random key ID (base64url, no padding)
+	keyID, err = genKid()
+	if err != nil {
+		return err
+	}
 
+	var rawKey any
 	switch alg {
 	case "RS256":
 		algorithm = jwa.RS256()
@@ -163,6 +169,8 @@ func cacheJWKS() error {
 }
 
 func main() {
+	var err error
+
 	// Parse CLI flags
 	flag.Parse()
 
@@ -170,7 +178,6 @@ func main() {
 
 	// Initialize key storage if path is provided
 	if *keyStoragePath != "" {
-		var err error
 		keyStorage, err = NewFileKeyStorage(*keyStoragePath)
 		if err != nil {
 			log.Fatalf("Failed to initialize key storage: %v", err)
@@ -188,10 +195,10 @@ func main() {
 			log.Printf("Loaded existing signing key from %s", *keyStoragePath)
 
 			// Extract algorithm and key ID from loaded key
-			if loadedAlg, ok := signingKey.Algorithm(); ok {
-				if sigAlg, ok := loadedAlg.(jwa.SignatureAlgorithm); ok {
-					algorithm = sigAlg
-				} else {
+			loadedAlg, ok := signingKey.Algorithm()
+			if ok {
+				algorithm, ok = loadedAlg.(jwa.SignatureAlgorithm)
+				if !ok {
 					log.Fatalf("Loaded key has invalid algorithm type")
 				}
 			}
@@ -204,31 +211,35 @@ func main() {
 			if err != nil {
 				log.Fatalf("Failed to get public key: %v", err)
 			}
-			
+
 			// Cache JWKS
-			if err := cacheJWKS(); err != nil {
+			err = cacheJWKS()
+			if err != nil {
 				log.Fatalf("Failed to cache JWKS: %v", err)
 			}
 		} else {
 			// Generate new key
-			if err := generateSigningKey(*signingAlgorithm, *eddsaCurve); err != nil {
+			err = generateSigningKey(*signingAlgorithm, *eddsaCurve)
+			if err != nil {
 				log.Fatalf("Failed to generate signing key: %v", err)
 			}
-			
+
 			// Persist the new key
-			if err := keyStorage.Store(ctx, signingKey); err != nil {
+			err = keyStorage.Store(ctx, signingKey)
+			if err != nil {
 				log.Fatalf("Failed to store key: %v", err)
 			}
 			log.Printf("Generated and stored new signing key to %s", *keyStoragePath)
 		}
 	} else {
 		// Generate ephemeral key
-		if err := generateSigningKey(*signingAlgorithm, *eddsaCurve); err != nil {
+		err = generateSigningKey(*signingAlgorithm, *eddsaCurve)
+		if err != nil {
 			log.Fatalf("Failed to generate signing key: %v", err)
 		}
 		log.Printf("Using ephemeral signing key (will not persist across restarts)")
 	}
-	
+
 	log.Printf("Using signing algorithm: %s with key ID: %s", algorithm, keyID)
 
 	// Initialize tsnet server
@@ -244,14 +255,14 @@ func main() {
 		Hostname: hostname,
 		Logf:     log.Printf,
 	}
-	defer tsServer.Close()
+	defer func() { _ = tsServer.Close() }()
 
 	// Start listening
 	ln, err := tsServer.ListenTLS("tcp", ":443")
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	log.Printf("Starting tsiam server on %s...", hostname)
 
@@ -260,25 +271,28 @@ func main() {
 	mux.HandleFunc("GET /token", handleToken)
 	mux.HandleFunc("POST /token", handleToken)
 	mux.HandleFunc("GET /.well-known/jwks.json", handleJWKS)
+	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /", handleRoot)
 
 	// Start HTTP server
-	if err := http.Serve(ln, mux); err != nil {
+	err = http.Serve(ln, mux)
+	if err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+	if r.URL.Path != "/" && r.URL.Path != "" {
 		http.NotFound(w, r)
 		return
 	}
-	
+
 	w.Header().Set("Content-Type", "text/plain")
-	fmt.Fprintf(w, "Tailscale Workload Identity Service\n")
-	fmt.Fprintf(w, "\nEndpoints:\n")
-	fmt.Fprintf(w, "  GET /token - Get a JWT token for this workload\n")
-	fmt.Fprintf(w, "  GET /.well-known/jwks.json - Get the JWKS public keys\n")
+	_, _ = fmt.Fprintf(w, "👋")
+}
+
+func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleToken(w http.ResponseWriter, r *http.Request) {
@@ -298,7 +312,7 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 		Audience([]string{"tsiam"}).
 		IssuedAt(now).
 		NotBefore(now).
-		Expiration(now.Add(time.Duration(defaultTokenLifetime) * time.Second)).
+		Expiration(now.Add(time.Duration(defaultTokenLifetime)*time.Second)).
 		Claim("node_id", who.NodeID).
 		Claim("node_name", who.NodeName).
 		Claim("user_id", who.UserID).
@@ -319,12 +333,13 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 
 	// Return the token
 	w.Header().Set("Content-Type", "application/json")
-	response := map[string]interface{}{
+	response := map[string]any{
 		"access_token": string(signed),
 		"token_type":   "Bearer",
 		"expires_in":   defaultTokenLifetime,
 	}
-	if err := writeJSON(w, response); err != nil {
+	err = writeJSON(w, response)
+	if err != nil {
 		log.Printf("Failed to write response: %v", err)
 	}
 }
@@ -332,15 +347,17 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 func handleJWKS(w http.ResponseWriter, r *http.Request) {
 	// Return cached JWKS
 	w.Header().Set("Content-Type", "application/json")
-	if _, err := w.Write(cachedJWKS); err != nil {
+	_, err := w.Write(cachedJWKS)
+	if err != nil {
 		log.Printf("Failed to write JWKS: %v", err)
 	}
 }
 
 // writeJSON is a helper to write JSON responses
-func writeJSON(w http.ResponseWriter, v interface{}) error {
+func writeJSON(w http.ResponseWriter, v any) error {
 	// Check if it's a jwk.Set - use standard json marshaling
-	if set, ok := v.(jwk.Set); ok {
+	set, ok := v.(jwk.Set)
+	if ok {
 		data, err := json.Marshal(set)
 		if err != nil {
 			return err
