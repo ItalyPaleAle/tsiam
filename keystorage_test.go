@@ -1,12 +1,13 @@
 package main
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/lestrrat-go/jwx/v3/jwa"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFileKeyStorage(t *testing.T) {
@@ -16,68 +17,43 @@ func TestFileKeyStorage(t *testing.T) {
 
 	// Create storage
 	storage, err := NewFileKeyStorage(keyPath)
-	if err != nil {
-		t.Fatalf("Failed to create file storage: %v", err)
-	}
-
-	ctx := context.Background()
+	require.NoError(t, err, "Failed to create file storage")
 
 	// Test loading non-existent key
-	key, err := storage.Load(ctx)
-	if err != nil {
-		t.Fatalf("Failed to load non-existent key: %v", err)
-	}
-	if key != nil {
-		t.Error("Expected nil key for non-existent file")
-	}
+	key, err := storage.Load(t.Context())
+	require.NoError(t, err, "Failed to load non-existent key")
+	assert.Nil(t, key, "Expected nil key for non-existent file")
 
 	// Generate a test key
-	if err := generateSigningKey("RS256", ""); err != nil {
-		t.Fatalf("Failed to generate test key: %v", err)
-	}
+	err = generateSigningKey("ES256", "")
+	require.NoError(t, err, "Failed to generate test key")
 	originalKeyID := keyID
 
 	// Store the key
-	if err := storage.Store(ctx, signingKey); err != nil {
-		t.Fatalf("Failed to store key: %v", err)
-	}
+	err = storage.Store(t.Context(), signingKey)
+	require.NoError(t, err, "Failed to store key")
 
 	// Verify file exists
-	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
-		t.Error("Key file was not created")
-	}
+	_, err = os.Stat(keyPath)
+	require.NoError(t, err, "Key file was not created")
 
 	// Load the key back
-	loadedKey, err := storage.Load(ctx)
-	if err != nil {
-		t.Fatalf("Failed to load stored key: %v", err)
-	}
-	if loadedKey == nil {
-		t.Fatal("Loaded key is nil")
-	}
+	loadedKey, err := storage.Load(t.Context())
+	require.NoError(t, err, "Failed to load stored key")
+	require.NotNil(t, loadedKey, "Loaded key is nil")
 
 	// Verify key properties
-	if kid, ok := loadedKey.KeyID(); ok {
-		if kid != originalKeyID {
-			t.Errorf("Key ID mismatch: expected %s, got %s", originalKeyID, kid)
-		}
-	} else {
-		t.Error("Loaded key has no key ID")
-	}
+	kid, ok := loadedKey.KeyID()
+	require.True(t, ok, "Loaded key has no key ID")
+	assert.Equal(t, originalKeyID, kid, "Key ID mismatch")
 
-	if alg, ok := loadedKey.Algorithm(); ok {
-		if alg != jwa.RS256() {
-			t.Errorf("Algorithm mismatch: expected RS256, got %s", alg)
-		}
-	} else {
-		t.Error("Loaded key has no algorithm")
-	}
+	alg, ok := loadedKey.Algorithm()
+	require.True(t, ok, "Loaded key has no algorithm")
+	assert.Equal(t, jwa.ES256(), alg, "Algorithm mismatch")
 }
 
 func TestFileKeyStorage_InvalidPath(t *testing.T) {
 	// Try to create storage with invalid path
 	_, err := NewFileKeyStorage("/invalid/nonexistent/path/key.pem")
-	if err == nil {
-		t.Error("Expected error for invalid path")
-	}
+	require.Error(t, err, "Expected error for invalid path")
 }

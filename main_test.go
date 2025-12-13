@@ -47,10 +47,10 @@ func TestHandleJWKS(t *testing.T) {
 	require.True(t, ok, "Failed to get key from set")
 
 	// Verify key properties
-	assert.Equal(t, jwa.RSA(), key.KeyType())
+	assert.Equal(t, jwa.EC(), key.KeyType())
 	alg, ok := key.Algorithm()
 	assert.True(t, ok, "Expected algorithm to be set")
-	assert.Equal(t, jwa.RS256(), alg)
+	assert.Equal(t, jwa.ES256(), alg)
 	kid, ok := key.KeyID()
 	assert.True(t, ok, "Expected kid to be set")
 	assert.NotEmpty(t, kid, "Expected kid to be non-empty")
@@ -81,7 +81,7 @@ func TestHandleToken(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Parse the response
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.NewDecoder(w.Body).Decode(&response)
 	require.NoError(t, err, "Failed to decode response")
 
