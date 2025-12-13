@@ -9,9 +9,9 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
-	"flag"
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -21,6 +21,9 @@ import (
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/lestrrat-go/jwx/v3/jwt"
 	"tailscale.com/tsnet"
+
+	"github.com/italypaleale/tsiam/pkg/config"
+	"github.com/italypaleale/tsiam/pkg/utils"
 )
 
 const (
@@ -33,11 +36,6 @@ const (
 )
 
 var (
-	// CLI flags
-	signingAlgorithm = flag.String("algorithm", "RS256", "Signing algorithm: RS256, ES256, ES384, ES512, EdDSA")
-	eddsaCurve       = flag.String("curve", "ed25519", "Curve for EdDSA algorithm: ed25519")
-	keyStoragePath   = flag.String("key-storage-path", "", "Path to store signing key (optional, key will be ephemeral if not set)")
-
 	// Keys and config
 	signingKey jwk.Key
 	publicKey  jwk.Key
@@ -47,6 +45,7 @@ var (
 	algorithm  jwa.SignatureAlgorithm
 	cachedJWKS []byte // Cached JSON-encoded JWKS
 	keyStorage KeyStorage
+	logger     *slog.Logger
 )
 
 // WhoIsInfo contains information about the Tailscale node making the request
@@ -108,8 +107,8 @@ func generateSigningKey(alg string, curve string) (err error) {
 
 	case "EdDSA":
 		algorithm = jwa.EdDSA()
-		// Currently only ed25519 is supported
-		if curve != "" && curve != "ed25519" {
+		// Currently only Ed25519 is supported
+		if curve != "" && curve != "Ed25519" {
 			return fmt.Errorf("unsupported EdDSA curve: %s (only ed25519 is supported)", curve)
 		}
 		_, edKey, err := ed25519.GenerateKey(rand.Reader)
@@ -171,35 +170,44 @@ func cacheJWKS() error {
 func main() {
 	var err error
 
-	// Parse CLI flags
-	flag.Parse()
+	// Initialize logger
+	logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	// Load configuration
+	err = config.LoadConfig()
+	if err != nil {
+		utils.FatalError(logger, "Failed to load config", err)
+	}
+	cfg := config.Get()
 
 	ctx := context.Background()
 
 	// Initialize key storage if path is provided
-	if *keyStoragePath != "" {
-		keyStorage, err = NewFileKeyStorage(*keyStoragePath)
+	if cfg.SigningKey.StoragePath != "" {
+		keyStorage, err = NewFileKeyStorage(cfg.SigningKey.StoragePath)
 		if err != nil {
-			log.Fatalf("Failed to initialize key storage: %v", err)
+			utils.FatalError(logger, "Failed to initialize key storage", err)
 		}
 
 		// Try to load existing key
 		loadedKey, err := keyStorage.Load(ctx)
 		if err != nil {
-			log.Fatalf("Failed to load key from storage: %v", err)
+			utils.FatalError(logger, "Failed to load key from storage", err)
 		}
 
 		if loadedKey != nil {
 			// Use existing key
 			signingKey = loadedKey
-			log.Printf("Loaded existing signing key from %s", *keyStoragePath)
+			logger.Info("Loaded existing signing key", "path", cfg.SigningKey.StoragePath)
 
 			// Extract algorithm and key ID from loaded key
 			loadedAlg, ok := signingKey.Algorithm()
 			if ok {
 				algorithm, ok = loadedAlg.(jwa.SignatureAlgorithm)
 				if !ok {
-					log.Fatalf("Loaded key has invalid algorithm type")
+					utils.FatalError(logger, "Loaded key has invalid algorithm type", errors.New("invalid algorithm type"))
 				}
 			}
 			if kid, ok := signingKey.KeyID(); ok {
@@ -209,62 +217,59 @@ func main() {
 			// Generate public key
 			publicKey, err = signingKey.PublicKey()
 			if err != nil {
-				log.Fatalf("Failed to get public key: %v", err)
+				utils.FatalError(logger, "Failed to get public key", err)
 			}
 
 			// Cache JWKS
 			err = cacheJWKS()
 			if err != nil {
-				log.Fatalf("Failed to cache JWKS: %v", err)
+				utils.FatalError(logger, "Failed to cache JWKS", err)
 			}
 		} else {
 			// Generate new key
-			err = generateSigningKey(*signingAlgorithm, *eddsaCurve)
+			err = generateSigningKey(cfg.SigningKey.Algorithm, cfg.SigningKey.Curve)
 			if err != nil {
-				log.Fatalf("Failed to generate signing key: %v", err)
+				utils.FatalError(logger, "Failed to generate signing key", err)
 			}
 
 			// Persist the new key
 			err = keyStorage.Store(ctx, signingKey)
 			if err != nil {
-				log.Fatalf("Failed to store key: %v", err)
+				utils.FatalError(logger, "Failed to store key", err)
 			}
-			log.Printf("Generated and stored new signing key to %s", *keyStoragePath)
+			logger.Info("Generated and stored new signing key", "path", cfg.SigningKey.StoragePath)
 		}
 	} else {
 		// Generate ephemeral key
-		err = generateSigningKey(*signingAlgorithm, *eddsaCurve)
+		err = generateSigningKey(cfg.SigningKey.Algorithm, cfg.SigningKey.Curve)
 		if err != nil {
-			log.Fatalf("Failed to generate signing key: %v", err)
+			utils.FatalError(logger, "Failed to generate signing key", err)
 		}
-		log.Printf("Using ephemeral signing key (will not persist across restarts)")
+		logger.Info("Using ephemeral signing key (will not persist across restarts)")
 	}
 
-	log.Printf("Using signing algorithm: %s with key ID: %s", algorithm, keyID)
-
-	// Initialize tsnet server
-	hostname := os.Getenv("TSIAM_HOSTNAME")
-	if hostname == "" {
-		hostname = "tsiam"
-	}
+	logger.Warn("Using signing algorithm", "algorithm", algorithm, "keyID", keyID)
 
 	// Set the issuer URL based on hostname
-	issuerURL = fmt.Sprintf("https://%s", hostname)
+	issuerURL = fmt.Sprintf("https://%s", cfg.TSNet.Hostname)
 
+	tsLogger := logger.With("scope", "tsnet")
 	tsServer = &tsnet.Server{
-		Hostname: hostname,
-		Logf:     log.Printf,
+		Hostname: cfg.TSNet.Hostname,
+		Logf: func(format string, args ...any) {
+			tsLogger.Info(fmt.Sprintf(format, args...))
+		},
 	}
 	defer func() { _ = tsServer.Close() }()
 
 	// Start listening
 	ln, err := tsServer.ListenTLS("tcp", ":443")
 	if err != nil {
-		log.Fatalf("Failed to listen: %v", err)
+		utils.FatalError(logger, "Failed to listen", err)
 	}
 	defer func() { _ = ln.Close() }()
 
-	log.Printf("Starting tsiam server on %s...", hostname)
+	logger.Info("Starting tsiam server", "hostname", cfg.TSNet.Hostname)
 
 	// Setup HTTP handlers
 	mux := http.NewServeMux()
@@ -277,7 +282,7 @@ func main() {
 	// Start HTTP server
 	err = http.Serve(ln, mux)
 	if err != nil {
-		log.Fatalf("Failed to serve: %v", err)
+		utils.FatalError(logger, "Failed to serve", err)
 	}
 }
 
@@ -299,7 +304,7 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 	// Get Tailscale connection info from tsnet
 	who, err := getTailscaleWhoIs(r)
 	if err != nil {
-		log.Printf("Failed to get Tailscale identity: %v", err)
+		logger.Error("Failed to get Tailscale identity", "error", err)
 		http.Error(w, "Failed to identify caller", http.StatusInternalServerError)
 		return
 	}
@@ -318,7 +323,7 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 		Claim("user_id", who.UserID).
 		Build()
 	if err != nil {
-		log.Printf("Failed to build token: %v", err)
+		logger.Error("Failed to build token", "error", err)
 		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
 		return
 	}
@@ -326,7 +331,7 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 	// Sign the token
 	signed, err := jwt.Sign(token, jwt.WithKey(algorithm, signingKey))
 	if err != nil {
-		log.Printf("Failed to sign token: %v", err)
+		logger.Error("Failed to sign token", "error", err)
 		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
 		return
 	}
@@ -340,7 +345,7 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 	err = writeJSON(w, response)
 	if err != nil {
-		log.Printf("Failed to write response: %v", err)
+		logger.Error("Failed to write response", "error", err)
 	}
 }
 
@@ -349,7 +354,7 @@ func handleJWKS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_, err := w.Write(cachedJWKS)
 	if err != nil {
-		log.Printf("Failed to write JWKS: %v", err)
+		logger.Error("Failed to write JWKS", "error", err)
 	}
 }
 

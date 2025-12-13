@@ -42,7 +42,11 @@ func GetDefaultConfig() *Config {
 			OmitHealthChecks: true,
 		},
 		TSNet: ConfigTSNet{
+			Hostname:  "tsiam",
 			Ephemeral: false,
+		},
+		SigningKey: ConfigSigningKey{
+			Algorithm: "ES256",
 		},
 		Dev: defaultDevConfig,
 	}

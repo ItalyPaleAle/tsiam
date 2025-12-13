@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 )
 
@@ -12,6 +13,9 @@ type Config struct {
 
 	// Logs contains configuration for logging
 	Logs ConfigLogs `yaml:"logs"`
+
+	// SigningKey contains configuration for JWT signing keys
+	SigningKey ConfigSigningKey `yaml:"signingKey"`
 
 	// Dev is meant for development only; it's undocumented
 	Dev ConfigDev `yaml:"-"`
@@ -38,6 +42,7 @@ type ConfigLogs struct {
 // ConfigTSNet holds tsnet configuration
 type ConfigTSNet struct {
 	// Hostname to use for the tsnet node.
+	// +default "tsiam"
 	Hostname string `yaml:"hostname"`
 
 	// AuthKey can be used to authenticate the tsnet node automatically.
@@ -51,6 +56,20 @@ type ConfigTSNet struct {
 	// If true, the tsnet node is ephemeral (not persisted in the tailnet).
 	// +default false
 	Ephemeral bool `yaml:"ephemeral"`
+}
+
+// ConfigSigningKey holds JWT signing key configuration
+type ConfigSigningKey struct {
+	// Signing algorithm to use. Supported values: RS256, ES256, ES384, ES512, EdDSA.
+	// +default "ES256"
+	Algorithm string `yaml:"algorithm"`
+
+	// Curve for EdDSA algorithm.
+	// Currently only Ed25519 is supported.
+	Curve string `yaml:"curve"`
+
+	// Path to store signing key. If empty, key will be ephemeral (not persisted).
+	StoragePath string `yaml:"storagePath"`
 }
 
 // ConfigDev includes options using during development only
@@ -87,5 +106,24 @@ func (c *Config) GetInstanceID() string {
 
 // Validates the configuration and performs some sanitization
 func (c *Config) Validate(logger *slog.Logger) error {
+	// Signing key algorithm
+	switch c.SigningKey.Algorithm {
+	case "RS256", "ES256", "ES384", "ES512":
+		if c.SigningKey.Curve != "" {
+			return errors.New("configuration option 'signingKey.curve' is only supported when 'signingKey.algorithm' is 'EdDSA'")
+		}
+	case "EdDSA":
+		switch c.SigningKey.Curve {
+		case "Ed25519":
+			// All good
+		case "":
+			// Set Ed25519 as default
+			c.SigningKey.Curve = "Ed25519"
+		default:
+			return errors.New("configuration option 'signingKey.curve' is not valid; only allowed value is 'Ed25519'")
+		}
+	default:
+		return errors.New("configuration option 'signingKey.algorithm' is not valid; allowed values: 'RS256', 'ES256', 'ES384', 'ES512', 'EdDSA'")
+	}
 	return nil
 }
