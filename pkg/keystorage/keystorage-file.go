@@ -1,4 +1,4 @@
-package main
+package keystorage
 
 import (
 	"context"
@@ -9,14 +9,6 @@ import (
 
 	"github.com/lestrrat-go/jwx/v3/jwk"
 )
-
-// KeyStorage is an interface for persisting signing keys
-type KeyStorage interface {
-	// Load loads the signing key from storage
-	Load(ctx context.Context) (jwk.Key, error)
-	// Store saves the signing key to storage
-	Store(ctx context.Context, key jwk.Key) error
-}
 
 // FileKeyStorage implements KeyStorage using local filesystem
 type FileKeyStorage struct {
@@ -31,7 +23,7 @@ func NewFileKeyStorage(path string) (*FileKeyStorage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create key storage directory: %w", err)
 	}
-	
+
 	return &FileKeyStorage{
 		path: path,
 	}, nil
@@ -71,6 +63,3 @@ func (f *FileKeyStorage) Store(ctx context.Context, key jwk.Key) error {
 
 	return nil
 }
-
-// TODO: Implement AzureKeyVaultKeyStorage for wrapping keys with Azure Key Vault Keys
-// TODO: Implement AzureKeyVaultSecretStorage for storing keys in Azure Key Vault Secrets

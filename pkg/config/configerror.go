@@ -4,9 +4,8 @@ import (
 	"errors"
 	"log/slog"
 
+	slogkit "github.com/italypaleale/go-kit/slog"
 	"github.com/spf13/cast"
-
-	"github.com/italypaleale/tsiam/pkg/utils"
 )
 
 // ConfigError is a configuration error
@@ -31,5 +30,5 @@ func (e ConfigError) Error() string {
 
 // LogFatal causes a fatal log
 func (e ConfigError) LogFatal(log *slog.Logger) {
-	utils.FatalError(log, e.msg, errors.New(e.err))
+	slogkit.FatalError(log, e.msg, errors.New(e.err))
 }

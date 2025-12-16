@@ -73,8 +73,7 @@ type ConfigSigningKey struct {
 }
 
 // ConfigDev includes options using during development only
-type ConfigDev struct {
-}
+type ConfigDev struct{}
 
 // Internal properties
 type internal struct {

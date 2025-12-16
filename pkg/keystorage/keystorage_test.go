@@ -1,4 +1,4 @@
-package main
+package keystorage
 
 import (
 	"os"
@@ -8,6 +8,8 @@ import (
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/italypaleale/tsiam/pkg/jwks"
 )
 
 func TestFileKeyStorage(t *testing.T) {
@@ -25,9 +27,12 @@ func TestFileKeyStorage(t *testing.T) {
 	assert.Nil(t, key, "Expected nil key for non-existent file")
 
 	// Generate a test key
-	err = generateSigningKey("ES256", "")
+	signingKey, err := jwks.NewSigningKey("ES256", "")
 	require.NoError(t, err, "Failed to generate test key")
-	originalKeyID := keyID
+
+	originalKeyID, ok := signingKey.KeyID()
+	require.True(t, ok)
+	require.NotNil(t, originalKeyID)
 
 	// Store the key
 	err = storage.Store(t.Context(), signingKey)

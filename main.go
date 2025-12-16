@@ -17,13 +17,15 @@ import (
 	"strconv"
 	"time"
 
+	slogkit "github.com/italypaleale/go-kit/slog"
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/lestrrat-go/jwx/v3/jwt"
 	"tailscale.com/tsnet"
 
 	"github.com/italypaleale/tsiam/pkg/config"
-	"github.com/italypaleale/tsiam/pkg/utils"
+	"github.com/italypaleale/tsiam/pkg/jwks"
+	"github.com/italypaleale/tsiam/pkg/keystorage"
 )
 
 const (
@@ -44,7 +46,7 @@ var (
 	issuerURL  string
 	algorithm  jwa.SignatureAlgorithm
 	cachedJWKS []byte // Cached JSON-encoded JWKS
-	keyStorage KeyStorage
+	keyStorage keystorage.KeyStorage
 	logger     *slog.Logger
 )
 
@@ -146,24 +148,11 @@ func generateSigningKey(alg string, curve string) (err error) {
 	}
 
 	// Cache the JWKS JSON
-	err = cacheJWKS()
+	cachedJWKS, err = jwks.GetPublicJWKSAsJSON()
 	if err != nil {
 		return err
 	}
 
-	return nil
-}
-
-func cacheJWKS() error {
-	set := jwk.NewSet()
-	if err := set.AddKey(publicKey); err != nil {
-		return fmt.Errorf("failed to add key to JWKS set: %w", err)
-	}
-	var err error
-	cachedJWKS, err = json.Marshal(set)
-	if err != nil {
-		return fmt.Errorf("failed to marshal JWKS: %w", err)
-	}
 	return nil
 }
 
@@ -178,7 +167,7 @@ func main() {
 	// Load configuration
 	err = config.LoadConfig()
 	if err != nil {
-		utils.FatalError(logger, "Failed to load config", err)
+		slogkit.FatalError(logger, "Failed to load config", err)
 	}
 	cfg := config.Get()
 
@@ -186,15 +175,15 @@ func main() {
 
 	// Initialize key storage if path is provided
 	if cfg.SigningKey.StoragePath != "" {
-		keyStorage, err = NewFileKeyStorage(cfg.SigningKey.StoragePath)
+		keyStorage, err = keystorage.NewFileKeyStorage(cfg.SigningKey.StoragePath)
 		if err != nil {
-			utils.FatalError(logger, "Failed to initialize key storage", err)
+			slogkit.FatalError(logger, "Failed to initialize key storage", err)
 		}
 
 		// Try to load existing key
 		loadedKey, err := keyStorage.Load(ctx)
 		if err != nil {
-			utils.FatalError(logger, "Failed to load key from storage", err)
+			slogkit.FatalError(logger, "Failed to load key from storage", err)
 		}
 
 		if loadedKey != nil {
@@ -207,7 +196,7 @@ func main() {
 			if ok {
 				algorithm, ok = loadedAlg.(jwa.SignatureAlgorithm)
 				if !ok {
-					utils.FatalError(logger, "Loaded key has invalid algorithm type", errors.New("invalid algorithm type"))
+					slogkit.FatalError(logger, "Loaded key has invalid algorithm type", errors.New("invalid algorithm type"))
 				}
 			}
 			if kid, ok := signingKey.KeyID(); ok {
@@ -217,25 +206,25 @@ func main() {
 			// Generate public key
 			publicKey, err = signingKey.PublicKey()
 			if err != nil {
-				utils.FatalError(logger, "Failed to get public key", err)
+				slogkit.FatalError(logger, "Failed to get public key", err)
 			}
 
 			// Cache JWKS
-			err = cacheJWKS()
+			cachedJWKS, err = jwks.GetPublicJWKSAsJSON()
 			if err != nil {
-				utils.FatalError(logger, "Failed to cache JWKS", err)
+				slogkit.FatalError(logger, "Failed to cache JWKS", err)
 			}
 		} else {
 			// Generate new key
 			err = generateSigningKey(cfg.SigningKey.Algorithm, cfg.SigningKey.Curve)
 			if err != nil {
-				utils.FatalError(logger, "Failed to generate signing key", err)
+				slogkit.FatalError(logger, "Failed to generate signing key", err)
 			}
 
 			// Persist the new key
 			err = keyStorage.Store(ctx, signingKey)
 			if err != nil {
-				utils.FatalError(logger, "Failed to store key", err)
+				slogkit.FatalError(logger, "Failed to store key", err)
 			}
 			logger.Info("Generated and stored new signing key", "path", cfg.SigningKey.StoragePath)
 		}
@@ -243,7 +232,7 @@ func main() {
 		// Generate ephemeral key
 		err = generateSigningKey(cfg.SigningKey.Algorithm, cfg.SigningKey.Curve)
 		if err != nil {
-			utils.FatalError(logger, "Failed to generate signing key", err)
+			slogkit.FatalError(logger, "Failed to generate signing key", err)
 		}
 		logger.Info("Using ephemeral signing key (will not persist across restarts)")
 	}
@@ -265,7 +254,7 @@ func main() {
 	// Start listening
 	ln, err := tsServer.ListenTLS("tcp", ":443")
 	if err != nil {
-		utils.FatalError(logger, "Failed to listen", err)
+		slogkit.FatalError(logger, "Failed to listen", err)
 	}
 	defer func() { _ = ln.Close() }()
 
@@ -282,7 +271,7 @@ func main() {
 	// Start HTTP server
 	err = http.Serve(ln, mux)
 	if err != nil {
-		utils.FatalError(logger, "Failed to serve", err)
+		slogkit.FatalError(logger, "Failed to serve", err)
 	}
 }
 
