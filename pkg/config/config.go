@@ -69,7 +69,33 @@ type ConfigSigningKey struct {
 	Curve string `yaml:"curve"`
 
 	// Path to store signing key. If empty, key will be ephemeral (not persisted).
+	// This is used for file-based storage.
 	StoragePath string `yaml:"storagePath"`
+
+	// AzureKeyVault contains configuration for Azure Key Vault-based key storage.
+	// If specified, this takes precedence over storagePath.
+	AzureKeyVault *ConfigAzureKeyVault `yaml:"azureKeyVault,omitempty"`
+}
+
+// ConfigAzureKeyVault holds Azure Key Vault configuration
+type ConfigAzureKeyVault struct {
+	// VaultURL is the URL of the Azure Key Vault (e.g., https://myvault.vault.azure.net/).
+	VaultURL string `yaml:"vaultURL"`
+
+	// SecretName is the name of the secret in Azure Key Vault that stores the signing key.
+	SecretName string `yaml:"secretName"`
+
+	// TenantID is the Azure AD tenant ID for authentication.
+	// If empty, DefaultAzureCredential will be used.
+	TenantID string `yaml:"tenantID,omitempty"`
+
+	// ClientID is the Azure AD application (client) ID for authentication.
+	// If empty, DefaultAzureCredential will be used.
+	ClientID string `yaml:"clientID,omitempty"`
+
+	// ClientSecret is the Azure AD application client secret for authentication.
+	// If empty, DefaultAzureCredential will be used.
+	ClientSecret string `yaml:"clientSecret,omitempty"`
 }
 
 // ConfigDev includes options using during development only

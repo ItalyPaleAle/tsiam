@@ -58,5 +58,39 @@ signingKey:
   ## signingKey.storagePath (string)
   ## Description:
   ##   Path to store signing key. If empty, key will be ephemeral (not persisted).
+  ##   This is used for file-based storage.
   #storagePath: ""
+
+  ## signingKey.azureKeyVault (object)
+  ## Description:
+  ##   Azure Key Vault configuration for storing signing keys as secrets.
+  ##   If specified, this takes precedence over storagePath.
+  #azureKeyVault:
+    ## signingKey.azureKeyVault.vaultURL (string)
+    ## Description:
+    ##   URL of the Azure Key Vault (e.g., https://myvault.vault.azure.net/).
+    #vaultURL: ""
+
+    ## signingKey.azureKeyVault.secretName (string)
+    ## Description:
+    ##   Name of the secret in Azure Key Vault that stores the signing key.
+    #secretName: ""
+
+    ## signingKey.azureKeyVault.tenantID (string)
+    ## Description:
+    ##   Azure AD tenant ID for authentication.
+    ##   If empty, DefaultAzureCredential will be used (e.g., managed identity).
+    #tenantID: ""
+
+    ## signingKey.azureKeyVault.clientID (string)
+    ## Description:
+    ##   Azure AD application (client) ID for authentication.
+    ##   If empty, DefaultAzureCredential will be used (e.g., managed identity).
+    #clientID: ""
+
+    ## signingKey.azureKeyVault.clientSecret (string)
+    ## Description:
+    ##   Azure AD application client secret for authentication.
+    ##   If empty, DefaultAzureCredential will be used (e.g., managed identity).
+    #clientSecret: ""
 

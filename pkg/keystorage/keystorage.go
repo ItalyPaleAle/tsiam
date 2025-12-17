@@ -15,4 +15,3 @@ type KeyStorage interface {
 }
 
 // TODO: Implement AzureKeyVaultKeyStorage for wrapping keys with Azure Key Vault Keys
-// TODO: Implement AzureKeyVaultSecretStorage for storing keys in Azure Key Vault Secrets
