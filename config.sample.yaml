@@ -63,7 +63,10 @@ signingKey:
 
   ## signingKey.azureKeyVault (object)
   ## Description:
-  ##   Azure Key Vault configuration for storing signing keys as secrets.
+  ##   Azure Key Vault configuration for storing signing keys.
+  ##   Supports two modes:
+  ##   1. Secret-based: Store entire key in Azure Key Vault as a secret (use secretName)
+  ##   2. Key-based: Store wrapped key on disk, unwrap with Azure Key Vault key (use keyName + storagePath)
   ##   If specified, this takes precedence over storagePath.
   #azureKeyVault:
     ## signingKey.azureKeyVault.vaultURL (string)
@@ -74,7 +77,22 @@ signingKey:
     ## signingKey.azureKeyVault.secretName (string)
     ## Description:
     ##   Name of the secret in Azure Key Vault that stores the signing key.
+    ##   Used for secret-based storage where the entire key is stored in Azure Key Vault.
+    ##   If both secretName and keyName are specified, secretName takes precedence.
     #secretName: ""
+
+    ## signingKey.azureKeyVault.keyName (string)
+    ## Description:
+    ##   Name of the key in Azure Key Vault used for wrapping/unwrapping.
+    ##   Used for key-based storage where the signing key is stored on disk in wrapped form.
+    ##   The key is unwrapped using Azure Key Vault on load.
+    #keyName: ""
+
+    ## signingKey.azureKeyVault.storagePath (string)
+    ## Description:
+    ##   Path to store the wrapped signing key on disk.
+    ##   Only used when keyName is specified for key-based storage.
+    #storagePath: ""
 
     ## signingKey.azureKeyVault.tenantID (string)
     ## Description:

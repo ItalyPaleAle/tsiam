@@ -83,7 +83,18 @@ type ConfigAzureKeyVault struct {
 	VaultURL string `yaml:"vaultURL"`
 
 	// SecretName is the name of the secret in Azure Key Vault that stores the signing key.
-	SecretName string `yaml:"secretName"`
+	// Used for secret-based storage where the entire key is stored in Azure Key Vault.
+	// If both SecretName and KeyName are specified, SecretName takes precedence.
+	SecretName string `yaml:"secretName,omitempty"`
+
+	// KeyName is the name of the key in Azure Key Vault used for wrapping/unwrapping.
+	// Used for key-based storage where the signing key is stored on disk in wrapped form.
+	// The key is unwrapped using Azure Key Vault on load.
+	KeyName string `yaml:"keyName,omitempty"`
+
+	// StoragePath is the path to store the wrapped signing key on disk.
+	// Only used when KeyName is specified for key-based storage.
+	StoragePath string `yaml:"storagePath,omitempty"`
 
 	// TenantID is the Azure AD tenant ID for authentication.
 	// If empty, DefaultAzureCredential will be used.
