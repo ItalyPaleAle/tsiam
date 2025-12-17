@@ -84,7 +84,8 @@ type ConfigAzureKeyVault struct {
 
 	// SecretName is the name of the secret in Azure Key Vault that stores the signing key.
 	// Used for secret-based storage where the entire key is stored in Azure Key Vault.
-	// If both SecretName and KeyName are specified, SecretName takes precedence.
+	// Note: If both SecretName and KeyName are specified, the application logic should
+	// handle precedence (typically secret-based storage takes precedence).
 	SecretName string `yaml:"secretName,omitempty"`
 
 	// KeyName is the name of the key in Azure Key Vault used for wrapping/unwrapping.

@@ -21,7 +21,9 @@ type AzureKeyVaultKeyClient interface {
 }
 
 // AzureKeyVaultKeyStorage implements KeyStorage using Azure Key Vault Keys for wrapping
-// The signing key is stored on disk in wrapped (encrypted) form and unwrapped on load
+// The signing key is stored on disk in wrapped (encrypted) form and unwrapped on load.
+// Uses RSA-OAEP-256 as the encryption algorithm, which is the recommended algorithm for
+// key wrapping in Azure Key Vault, providing strong security and broad compatibility.
 type AzureKeyVaultKeyStorage struct {
 	client    AzureKeyVaultKeyClient
 	keyName   string
@@ -61,6 +63,7 @@ func NewAzureKeyVaultKeyStorage(vaultURL string, keyName string, storagePath str
 		client:      client,
 		keyName:     keyName,
 		storagePath: storagePath,
+		// RSA-OAEP-256 is the recommended algorithm for Azure Key Vault key wrapping
 		algorithm:   azkeys.EncryptionAlgorithmRSAOAEP256,
 	}, nil
 }
@@ -89,6 +92,7 @@ func NewAzureKeyVaultKeyStorageWithClient(client AzureKeyVaultKeyClient, keyName
 		client:      client,
 		keyName:     keyName,
 		storagePath: storagePath,
+		// RSA-OAEP-256 is the recommended algorithm for Azure Key Vault key wrapping
 		algorithm:   azkeys.EncryptionAlgorithmRSAOAEP256,
 	}, nil
 }
