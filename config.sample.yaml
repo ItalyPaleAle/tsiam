@@ -1,0 +1,62 @@
+tsnet:
+  ## tsnet.hostname (string)
+  ## Description:
+  ##   Hostname to use for the tsnet node.
+  ## Default: "tsiam"
+  #hostname: "tsiam"
+
+  ## tsnet.authKey (string)
+  ## Description:
+  ##   AuthKey can be used to authenticate the tsnet node automatically.
+  ##   If empty, tsnet will rely on existing state in the database.
+  #authKey: ""
+
+  ## tsnet.stateDir (string)
+  ## Description:
+  ##   Directory where tsnet stores its state.
+  ##   If empty, defaults to a folder next to the loaded config file.
+  #stateDir: ""
+
+  ## tsnet.ephemeral (boolean)
+  ## Description:
+  ##   If true, the tsnet node is ephemeral (not persisted in the tailnet).
+  ## Default: false
+  #ephemeral: false
+
+logs:
+  ## logs.level (string)
+  ## Description:
+  ##   Controls log level and verbosity. Supported values: `debug`, `info` (default), `warn`, `error`.
+  ## Default: "info"
+  #level: "info"
+
+  ## logs.omitHealthChecks (boolean)
+  ## Description:
+  ##   If true, calls to the healthcheck endpoint (`/healthz`) are not included in the logs.
+  ## Default: true
+  #omitHealthChecks: true
+
+  ## logs.json (boolean)
+  ## Description:
+  ##   If true, emits logs formatted as JSON, otherwise uses a text-based structured log format.
+  ##   Defaults to false if a TTY is attached (e.g. when running the binary directly in the terminal or in development); true otherwise.
+  #json: false
+
+signingKey:
+  ## signingKey.algorithm (string)
+  ## Description:
+  ##   Signing algorithm to use. Supported values: RS256, ES256, ES384, ES512, EdDSA.
+  ## Default: "ES256"
+  #algorithm: "ES256"
+
+  ## signingKey.curve (string)
+  ## Description:
+  ##   Curve for EdDSA algorithm.
+  ##   Currently only Ed25519 is supported.
+  #curve: ""
+
+  ## signingKey.storagePath (string)
+  ## Description:
+  ##   Path to store signing key. If empty, key will be ephemeral (not persisted).
+  #storagePath: ""
+
