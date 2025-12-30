@@ -1,4 +1,4 @@
-package logging
+package config
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	slogkit "github.com/italypaleale/go-kit/slog"
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-isatty"
 	"go.opentelemetry.io/contrib/bridges/otelslog"
@@ -16,10 +17,9 @@ import (
 	logSdk "go.opentelemetry.io/otel/sdk/log"
 
 	"github.com/italypaleale/tsiam/pkg/buildinfo"
-	"github.com/italypaleale/tsiam/pkg/config"
 )
 
-func getLogLevel(cfg *config.Config) (slog.Level, error) {
+func getLogLevel(cfg *Config) (slog.Level, error) {
 	switch strings.ToLower(cfg.Logs.Level) {
 	case "debug":
 		return slog.LevelDebug, nil
@@ -30,11 +30,13 @@ func getLogLevel(cfg *config.Config) (slog.Level, error) {
 	case "error":
 		return slog.LevelError, nil
 	default:
-		return 0, config.NewConfigError("Invalid value for 'logLevel'", "Invalid configuration")
+		return 0, NewConfigError("Invalid value for 'logLevel'", "Invalid configuration")
 	}
 }
 
-func GetLogger(ctx context.Context, cfg *config.Config) (log *slog.Logger, shutdownFn func(ctx context.Context) error, err error) {
+func GetLogger(ctx context.Context) (log *slog.Logger, shutdownFn func(ctx context.Context) error, err error) {
+	cfg := Get()
+
 	// Get the level
 	level, err := getLogLevel(cfg)
 	if err != nil {
@@ -89,7 +91,7 @@ func GetLogger(ctx context.Context, cfg *config.Config) (log *slog.Logger, shutd
 	logGlobal.SetLoggerProvider(provider)
 
 	// Wrap the handler in a "fanout" one
-	handler = LogFanoutHandler{
+	handler = slogkit.LogFanoutHandler{
 		handler,
 		otelslog.NewHandler(buildinfo.AppName, otelslog.WithLoggerProvider(provider)),
 	}

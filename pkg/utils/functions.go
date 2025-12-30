@@ -5,6 +5,11 @@ import (
 	"strings"
 )
 
+// Ptr returns a pointer to the value
+func Ptr[T any](val T) *T {
+	return &val
+}
+
 // IsTruthy returns true if a string is truthy, such as "1", "on", "yes", "true", "t", "y"
 func IsTruthy(str string) bool {
 	if len(str) > 4 {

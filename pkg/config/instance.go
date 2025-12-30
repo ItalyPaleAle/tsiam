@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 var (
@@ -41,11 +42,15 @@ func GetDefaultConfig() *Config {
 			Level:            "info",
 			OmitHealthChecks: true,
 		},
+		Tokens: ConfigTokens{
+			Lifetime: time.Hour,
+		},
 		TSNet: ConfigTSNet{
 			Hostname:  "tsiam",
 			Ephemeral: false,
 		},
 		SigningKey: ConfigSigningKey{
+			Storage:   "file",
 			Algorithm: "ES256",
 		},
 		Dev: defaultDevConfig,

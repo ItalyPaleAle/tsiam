@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
+	"time"
 )
 
 // Config represents the application configuration
@@ -13,6 +15,9 @@ type Config struct {
 
 	// Logs contains configuration for logging
 	Logs ConfigLogs `yaml:"logs"`
+
+	// Tokens contains configuration for tokens
+	Tokens ConfigTokens `yaml:"tokens"`
 
 	// SigningKey contains configuration for JWT signing keys
 	SigningKey ConfigSigningKey `yaml:"signingKey"`
@@ -39,6 +44,13 @@ type ConfigLogs struct {
 	JSON bool `yaml:"json"`
 }
 
+// ConfigTokens holds tokens configuration
+type ConfigTokens struct {
+	// Token life time, as a Go duration
+	// +default "1h"
+	Lifetime time.Duration `yaml:"lifetime"`
+}
+
 // ConfigTSNet holds tsnet configuration
 type ConfigTSNet struct {
 	// Hostname to use for the tsnet node.
@@ -56,10 +68,21 @@ type ConfigTSNet struct {
 	// If true, the tsnet node is ephemeral (not persisted in the tailnet).
 	// +default false
 	Ephemeral bool `yaml:"ephemeral"`
+
+	// If true, enables Tailscale Funnel to expose the .well-known endpoints publicly.
+	// This allows external OIDC clients to discover the JWKS without being on the tailnet.
+	// Note: see requirements for enabling Tailscale Funnel: https://tailscale.com/kb/1223/funnel
+	// +default false
+	Funnel bool `yaml:"funnel"`
 }
 
 // ConfigSigningKey holds JWT signing key configuration
 type ConfigSigningKey struct {
+	// Key storage provider
+	// Allowed values: "file" (default), "memory", "AzureKeyVaultKeys", "AzureKeyVaultSecrets"
+	// +default "file"
+	Storage string `yaml:"storage"`
+
 	// Signing algorithm to use. Supported values: RS256, ES256, ES384, ES512, EdDSA.
 	// +default "ES256"
 	Algorithm string `yaml:"algorithm"`
@@ -68,13 +91,78 @@ type ConfigSigningKey struct {
 	// Currently only Ed25519 is supported.
 	Curve string `yaml:"curve"`
 
-	// Path to store signing key. If empty, key will be ephemeral (not persisted).
-	StoragePath string `yaml:"storagePath"`
+	// Options for the "file" key storage
+	File *ConfigStorageFile `yaml:"file,omitempty"`
+
+	// Options for the "AzureKeyVaultKeys" key storage
+	AzureKeyVaultKeys *ConfigStorageAzureKeyVaultKeys `yaml:"azureKeyVaultKeys,omitempty"`
+
+	// Options for the "AzureKeyVaultSecrets" key storage
+	AzureKeyVaultSecrets *ConfigStorageAzureKeyVaultSecrets `yaml:"azureKeyVaultSecrets,omitempty"`
+}
+
+// ConfigStorageFile holds configuration for the Azure Key Vault Keys ("AzureKeyVaultKeys") storage
+type ConfigStorageFile struct {
+	// StoragePath is the path to store signing key on disk.
+	// The key is not encrypted on disk.
+	// +required
+	StoragePath string `yaml:"storagePath,omitempty"`
+}
+
+// ConfigStorageAzureKeyVaultKeys holds configuration for the Azure Key Vault Keys ("AzureKeyVaultKeys") storage
+type ConfigStorageAzureKeyVaultKeys struct {
+	// VaultURL is the URL of the Azure Key Vault (e.g., https://myvault.vault.azure.net/).
+	// +required
+	VaultURL string `yaml:"vaultURL"`
+
+	// KeyName is the name of the key in Azure Key Vault used for wrapping/unwrapping.
+	// The key is unwrapped using Azure Key Vault on app startup.
+	// +required
+	KeyName string `yaml:"keyName,omitempty"`
+
+	// StoragePath is the path to store the wrapped signing key on disk.
+	// +required
+	StoragePath string `yaml:"storagePath,omitempty"`
+
+	// TenantID is the Azure AD tenant ID for authentication.
+	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	TenantID string `yaml:"tenantID,omitempty"`
+
+	// ClientID is the Azure AD application (client) ID for authentication.
+	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	ClientID string `yaml:"clientID,omitempty"`
+
+	// ClientSecret is the Azure AD application client secret for authentication.
+	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	ClientSecret string `yaml:"clientSecret,omitempty"`
+}
+
+// ConfigAzureKeyVault holds configuration for the Azure Key Vault Secrets ("AzureKeyVaultSecrets") storage
+type ConfigStorageAzureKeyVaultSecrets struct {
+	// VaultURL is the URL of the Azure Key Vault (e.g., https://myvault.vault.azure.net/).
+	// +required
+	VaultURL string `yaml:"vaultURL"`
+
+	// SecretName is the name of the secret in Azure Key Vault that stores the signing key.
+	// The entire key is stored in Azure Key Vault.
+	// +required
+	SecretName string `yaml:"secretName,omitempty"`
+
+	// TenantID is the Azure AD tenant ID for authentication.
+	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	TenantID string `yaml:"tenantID,omitempty"`
+
+	// ClientID is the Azure AD application (client) ID for authentication.
+	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	ClientID string `yaml:"clientID,omitempty"`
+
+	// ClientSecret is the Azure AD application client secret for authentication.
+	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	ClientSecret string `yaml:"clientSecret,omitempty"`
 }
 
 // ConfigDev includes options using during development only
-type ConfigDev struct {
-}
+type ConfigDev struct{}
 
 // Internal properties
 type internal struct {
@@ -106,6 +194,15 @@ func (c *Config) GetInstanceID() string {
 
 // Validates the configuration and performs some sanitization
 func (c *Config) Validate(logger *slog.Logger) error {
+	// Token configuration
+	c.Tokens.Lifetime = c.Tokens.Lifetime.Truncate(time.Second)
+	if c.Tokens.Lifetime < time.Minute {
+		return errors.New("configuration open 'tokens.lifetime' must be at least 1 minute")
+	}
+	if c.Tokens.Lifetime > 24*time.Hour {
+		return errors.New("configuration open 'tokens.lifetime' must not be more than 24 hours")
+	}
+
 	// Signing key algorithm
 	switch c.SigningKey.Algorithm {
 	case "RS256", "ES256", "ES384", "ES512":
@@ -125,5 +222,54 @@ func (c *Config) Validate(logger *slog.Logger) error {
 	default:
 		return errors.New("configuration option 'signingKey.algorithm' is not valid; allowed values: 'RS256', 'ES256', 'ES384', 'ES512', 'EdDSA'")
 	}
+
+	// Keys storage
+	c.SigningKey.Storage = strings.ToLower(c.SigningKey.Storage)
+	switch c.SigningKey.Storage {
+	// File storage (default when value is empty)
+	case "file", "":
+		c.SigningKey.Storage = "file"
+		if c.SigningKey.File == nil {
+			return errors.New("configuration option 'signingKey.file' must be set when 'signingKey.storage' is 'file'")
+		}
+		if c.SigningKey.File.StoragePath == "" {
+			return errors.New("configuration option 'signingKey.file.storagePath' must be set when 'signingKey.storage' is 'file'")
+		}
+
+	// Memory storage is primarily meant for testing, show a warning
+	case "memory":
+		slog.Warn("Using ephemeral signing key (will not persist across restarts)")
+
+	// Azure Key Vault Keys
+	case "azurekeyvaultkeys":
+		if c.SigningKey.AzureKeyVaultKeys == nil {
+			return errors.New("configuration option 'signingKey.azureKeyVaultKeys' must be set when 'signingKey.storage' is 'AzureKeyVaultKeys'")
+		}
+		if c.SigningKey.AzureKeyVaultKeys.VaultURL == "" {
+			return errors.New("configuration option 'signingKey.azureKeyVaultKeys.vaultURL' must be set when 'signingKey.storage' is 'AzureKeyVaultKeys'")
+		}
+		if c.SigningKey.AzureKeyVaultKeys.KeyName == "" {
+			return errors.New("configuration option 'signingKey.azureKeyVaultKeys.keyName' must be set when 'signingKey.storage' is 'AzureKeyVaultKeys'")
+		}
+		if c.SigningKey.AzureKeyVaultKeys.StoragePath == "" {
+			return errors.New("configuration option 'signingKey.azureKeyVaultKeys.storagePath' must be set when 'signingKey.storage' is 'AzureKeyVaultKeys'")
+		}
+
+	// Azure Key Vault Secrets
+	case "azurekeyvaultsecrets":
+		if c.SigningKey.AzureKeyVaultSecrets == nil {
+			return errors.New("configuration option 'signingKey.azureKeyVaultSecrets' must be set when 'signingKey.storage' is 'AzureKeyVaultSecrets'")
+		}
+		if c.SigningKey.AzureKeyVaultSecrets.VaultURL == "" {
+			return errors.New("configuration option 'signingKey.azureKeyVaultSecrets.vaultURL' must be set when 'signingKey.storage' is 'AzureKeyVaultSecrets'")
+		}
+		if c.SigningKey.AzureKeyVaultSecrets.SecretName == "" {
+			return errors.New("configuration option 'signingKey.azureKeyVaultSecrets.secretName' must be set when 'signingKey.storage' is 'AzureKeyVaultSecrets'")
+		}
+
+	default:
+		return errors.New("invalid value for 'signingKey.storage'")
+	}
+
 	return nil
 }

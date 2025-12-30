@@ -1,0 +1,166 @@
+tsnet:
+  ## tsnet.hostname (string)
+  ## Description:
+  ##   Hostname to use for the tsnet node.
+  ## Default: "tsiam"
+  #hostname: "tsiam"
+
+  ## tsnet.authKey (string)
+  ## Description:
+  ##   AuthKey can be used to authenticate the tsnet node automatically.
+  ##   If empty, tsnet will rely on existing state in the database.
+  #authKey: ""
+
+  ## tsnet.stateDir (string)
+  ## Description:
+  ##   Directory where tsnet stores its state.
+  ##   If empty, defaults to a folder next to the loaded config file.
+  #stateDir: ""
+
+  ## tsnet.ephemeral (boolean)
+  ## Description:
+  ##   If true, the tsnet node is ephemeral (not persisted in the tailnet).
+  ## Default: false
+  #ephemeral: false
+
+  ## tsnet.funnel (boolean)
+  ## Description:
+  ##   If true, enables Tailscale Funnel to expose the .well-known endpoints publicly.
+  ##   This allows external OIDC clients to discover the JWKS without being on the tailnet.
+  ##   Note: see requirements for enabling Tailscale Funnel: https://tailscale.com/kb/1223/funnel
+  ## Default: false
+  #funnel: false
+
+logs:
+  ## logs.level (string)
+  ## Description:
+  ##   Controls log level and verbosity. Supported values: `debug`, `info` (default), `warn`, `error`.
+  ## Default: "info"
+  #level: "info"
+
+  ## logs.omitHealthChecks (boolean)
+  ## Description:
+  ##   If true, calls to the healthcheck endpoint (`/healthz`) are not included in the logs.
+  ## Default: true
+  #omitHealthChecks: true
+
+  ## logs.json (boolean)
+  ## Description:
+  ##   If true, emits logs formatted as JSON, otherwise uses a text-based structured log format.
+  ##   Defaults to false if a TTY is attached (e.g. when running the binary directly in the terminal or in development); true otherwise.
+  #json: false
+
+tokens:
+  ## tokens.lifetime (duration)
+  ## Description:
+  ##   Token life time, as a Go duration
+  ## Default: "1h"
+  #lifetime: "1h"
+
+signingKey:
+  ## signingKey.storage (string)
+  ## Description:
+  ##   Key storage provider
+  ##   Allowed values: "file" (default), "memory", "AzureKeyVaultKeys", "AzureKeyVaultSecrets"
+  ## Default: "file"
+  #storage: "file"
+
+  ## signingKey.algorithm (string)
+  ## Description:
+  ##   Signing algorithm to use. Supported values: RS256, ES256, ES384, ES512, EdDSA.
+  ## Default: "ES256"
+  #algorithm: "ES256"
+
+  ## signingKey.curve (string)
+  ## Description:
+  ##   Curve for EdDSA algorithm.
+  ##   Currently only Ed25519 is supported.
+  #curve: ""
+
+  ## signingKey.file
+  ## Description:
+  ##   Options for the "file" key storage
+  file:
+    ## signingKey.file.storagePath (string)
+    ## Description:
+    ##   StoragePath is the path to store signing key on disk.
+    ##   The key is not encrypted on disk.
+    ## Required
+    storagePath: ""
+
+  ## signingKey.azureKeyVaultKeys
+  ## Description:
+  ##   Options for the "AzureKeyVaultKeys" key storage
+  azureKeyVaultKeys:
+    ## signingKey.azureKeyVaultKeys.vaultURL (string)
+    ## Description:
+    ##   VaultURL is the URL of the Azure Key Vault (e.g., https://myvault.vault.azure.net/).
+    ## Required
+    vaultURL: ""
+
+    ## signingKey.azureKeyVaultKeys.keyName (string)
+    ## Description:
+    ##   KeyName is the name of the key in Azure Key Vault used for wrapping/unwrapping.
+    ##   The key is unwrapped using Azure Key Vault on app startup.
+    ## Required
+    keyName: ""
+
+    ## signingKey.azureKeyVaultKeys.storagePath (string)
+    ## Description:
+    ##   StoragePath is the path to store the wrapped signing key on disk.
+    ## Required
+    storagePath: ""
+
+    ## signingKey.azureKeyVaultKeys.tenantID (string)
+    ## Description:
+    ##   TenantID is the Azure AD tenant ID for authentication.
+    ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    #tenantID: ""
+
+    ## signingKey.azureKeyVaultKeys.clientID (string)
+    ## Description:
+    ##   ClientID is the Azure AD application (client) ID for authentication.
+    ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    #clientID: ""
+
+    ## signingKey.azureKeyVaultKeys.clientSecret (string)
+    ## Description:
+    ##   ClientSecret is the Azure AD application client secret for authentication.
+    ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    #clientSecret: ""
+
+  ## signingKey.azureKeyVaultSecrets
+  ## Description:
+  ##   Options for the "AzureKeyVaultSecrets" key storage
+  azureKeyVaultSecrets:
+    ## signingKey.azureKeyVaultSecrets.vaultURL (string)
+    ## Description:
+    ##   VaultURL is the URL of the Azure Key Vault (e.g., https://myvault.vault.azure.net/).
+    ## Required
+    vaultURL: ""
+
+    ## signingKey.azureKeyVaultSecrets.secretName (string)
+    ## Description:
+    ##   SecretName is the name of the secret in Azure Key Vault that stores the signing key.
+    ##   The entire key is stored in Azure Key Vault.
+    ## Required
+    secretName: ""
+
+    ## signingKey.azureKeyVaultSecrets.tenantID (string)
+    ## Description:
+    ##   TenantID is the Azure AD tenant ID for authentication.
+    ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    #tenantID: ""
+
+    ## signingKey.azureKeyVaultSecrets.clientID (string)
+    ## Description:
+    ##   ClientID is the Azure AD application (client) ID for authentication.
+    ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    #clientID: ""
+
+    ## signingKey.azureKeyVaultSecrets.clientSecret (string)
+    ## Description:
+    ##   ClientSecret is the Azure AD application client secret for authentication.
+    ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    #clientSecret: ""
+

@@ -2,6 +2,7 @@ package buildinfo
 
 import (
 	"fmt"
+	"runtime/debug"
 
 	"github.com/italypaleale/tsiam/pkg/utils"
 )
@@ -17,9 +18,17 @@ var (
 )
 
 // Set during initialization
-var BuildDescription string
+var (
+	BuildDescription string = "tsiam"
+	Package          string
+)
 
 func init() {
+	buildinfo, ok := debug.ReadBuildInfo()
+	if ok {
+		BuildDescription = buildinfo.Main.Path
+	}
+
 	if BuildId != "" && BuildDate != "" && CommitHash != "" {
 		BuildDescription = fmt.Sprintf("%s, %s (%s)", BuildId, BuildDate, CommitHash)
 	} else {
