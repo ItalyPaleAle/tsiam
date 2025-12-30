@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
@@ -76,7 +77,7 @@ func (a *AzureKeyVaultSecretStorage) Load(ctx context.Context) (jwk.Key, error) 
 	resp, err := a.client.GetSecret(ctx, a.secretName, "", nil)
 	if err != nil {
 		var respErr *azcore.ResponseError
-		if errors.As(err, &respErr) && respErr.StatusCode == 404 {
+		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
 			// Secret doesn't exist yet
 			return nil, errKeyNoExist
 		}

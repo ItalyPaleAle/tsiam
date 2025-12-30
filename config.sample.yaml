@@ -92,11 +92,11 @@ signingKey:
   ## Description:
   ##   Options for the "AzureKeyVaultKeys" key storage
   azureKeyVaultKeys:
-    ## signingKey.azureKeyVaultKeys.vaultURL (string)
+    ## signingKey.azureKeyVaultKeys.vaultUrl (string)
     ## Description:
     ##   VaultURL is the URL of the Azure Key Vault (e.g., https://myvault.vault.azure.net/).
     ## Required
-    vaultURL: ""
+    vaultUrl: ""
 
     ## signingKey.azureKeyVaultKeys.keyName (string)
     ## Description:
@@ -111,17 +111,17 @@ signingKey:
     ## Required
     storagePath: ""
 
-    ## signingKey.azureKeyVaultKeys.tenantID (string)
+    ## signingKey.azureKeyVaultKeys.tenantId (string)
     ## Description:
     ##   TenantID is the Azure AD tenant ID for authentication.
     ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
-    #tenantID: ""
+    #tenantId: ""
 
-    ## signingKey.azureKeyVaultKeys.clientID (string)
+    ## signingKey.azureKeyVaultKeys.clientId (string)
     ## Description:
     ##   ClientID is the Azure AD application (client) ID for authentication.
     ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
-    #clientID: ""
+    #clientId: ""
 
     ## signingKey.azureKeyVaultKeys.clientSecret (string)
     ## Description:
@@ -133,11 +133,11 @@ signingKey:
   ## Description:
   ##   Options for the "AzureKeyVaultSecrets" key storage
   azureKeyVaultSecrets:
-    ## signingKey.azureKeyVaultSecrets.vaultURL (string)
+    ## signingKey.azureKeyVaultSecrets.vaultUrl (string)
     ## Description:
     ##   VaultURL is the URL of the Azure Key Vault (e.g., https://myvault.vault.azure.net/).
     ## Required
-    vaultURL: ""
+    vaultUrl: ""
 
     ## signingKey.azureKeyVaultSecrets.secretName (string)
     ## Description:
@@ -146,17 +146,17 @@ signingKey:
     ## Required
     secretName: ""
 
-    ## signingKey.azureKeyVaultSecrets.tenantID (string)
+    ## signingKey.azureKeyVaultSecrets.tenantId (string)
     ## Description:
     ##   TenantID is the Azure AD tenant ID for authentication.
     ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
-    #tenantID: ""
+    #tenantId: ""
 
-    ## signingKey.azureKeyVaultSecrets.clientID (string)
+    ## signingKey.azureKeyVaultSecrets.clientId (string)
     ## Description:
     ##   ClientID is the Azure AD application (client) ID for authentication.
     ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
-    #clientID: ""
+    #clientId: ""
 
     ## signingKey.azureKeyVaultSecrets.clientSecret (string)
     ## Description:

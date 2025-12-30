@@ -24,18 +24,16 @@ import (
 
 // Server is the server based on Gin
 type Server struct {
-	appSrv    *http.Server
-	funnelSrv *http.Server
-	handler   http.Handler
-	running   atomic.Bool
-	wg        sync.WaitGroup
+	appSrv  *http.Server
+	handler http.Handler
+	running atomic.Bool
+	wg      sync.WaitGroup
 
 	appMetrics *metrics.AppMetrics
 
 	// Listener for the app server
 	// This can be used for testing without having to start an actual TCP listener
-	tsListener     net.Listener
-	funnelListener net.Listener
+	tsListener net.Listener
 
 	// TSNet server instance
 	tsnetServer *tsnetserver.TSNetServer
@@ -68,15 +66,12 @@ func NewServer(opts NewServerOpts) (s *Server, err error) {
 	}
 
 	// Init the app server
-	err = s.initAppServer()
-	if err != nil {
-		return nil, err
-	}
+	s.initAppServer()
 
 	return s, nil
 }
 
-func (s *Server) initAppServer() (err error) {
+func (s *Server) initAppServer() {
 	cfg := config.Get()
 
 	// Create the mux
@@ -111,8 +106,6 @@ func (s *Server) initAppServer() (err error) {
 
 	// Add middlewares
 	s.handler = httpserver.Use(mux, middlewares...)
-
-	return nil
 }
 
 // Run the web server

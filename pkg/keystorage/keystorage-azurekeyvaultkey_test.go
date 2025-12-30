@@ -25,12 +25,12 @@ type MockAzureKeyVaultKeyClient struct {
 
 func (m *MockAzureKeyVaultKeyClient) WrapKey(ctx context.Context, keyName string, keyVersion string, parameters azkeys.KeyOperationParameters, options *azkeys.WrapKeyOptions) (azkeys.WrapKeyResponse, error) {
 	args := m.Called(ctx, keyName, keyVersion, parameters, options)
-	return args.Get(0).(azkeys.WrapKeyResponse), args.Error(1)
+	return args.Get(0).(azkeys.WrapKeyResponse), args.Error(1) //nolint:forcetypeassert,wrapcheck
 }
 
 func (m *MockAzureKeyVaultKeyClient) UnwrapKey(ctx context.Context, keyName string, keyVersion string, parameters azkeys.KeyOperationParameters, options *azkeys.UnwrapKeyOptions) (azkeys.UnwrapKeyResponse, error) {
 	args := m.Called(ctx, keyName, keyVersion, parameters, options)
-	return args.Get(0).(azkeys.UnwrapKeyResponse), args.Error(1)
+	return args.Get(0).(azkeys.UnwrapKeyResponse), args.Error(1) //nolint:forcetypeassert,wrapcheck
 }
 
 func TestNewAzureKeyVaultKeyStorageWithClient(t *testing.T) {
@@ -102,13 +102,22 @@ func TestAzureKeyVaultKeyStorage_LoadExisting(t *testing.T) {
 	require.NoError(t, err)
 
 	// Mock UnwrapKey to return the original key
-	mockClient.On("UnwrapKey", mock.Anything, "test-key", "", mock.MatchedBy(func(params azkeys.KeyOperationParameters) bool {
-		return params.Value != nil && string(params.Value) == string(wrappedData)
-	}), mock.Anything).Return(azkeys.UnwrapKeyResponse{
-		KeyOperationResult: azkeys.KeyOperationResult{
-			Result: keyJSON,
-		},
-	}, nil)
+	mockClient.
+		On(
+			"UnwrapKey",
+			mock.Anything,
+			"test-key",
+			"",
+			mock.MatchedBy(func(params azkeys.KeyOperationParameters) bool {
+				return params.Value != nil && string(params.Value) == string(wrappedData)
+			}),
+			mock.Anything,
+		).
+		Return(azkeys.UnwrapKeyResponse{
+			KeyOperationResult: azkeys.KeyOperationResult{
+				Result: keyJSON,
+			},
+		}, nil)
 
 	// Load the key
 	loadedKey, err := storage.Load(t.Context())
@@ -166,25 +175,34 @@ func TestAzureKeyVaultKeyStorage_Store(t *testing.T) {
 
 	// Mock WrapKey to return wrapped data
 	wrappedData := []byte("wrapped-key-result")
-	mockClient.On("WrapKey", mock.Anything, "test-key", "", mock.MatchedBy(func(params azkeys.KeyOperationParameters) bool {
-		// Verify that the value can be parsed as a JWK
-		if params.Value == nil {
-			return false
-		}
-		_, err := jwk.ParseKey(params.Value)
-		return err == nil
-	}), mock.Anything).Return(azkeys.WrapKeyResponse{
-		KeyOperationResult: azkeys.KeyOperationResult{
-			Result: wrappedData,
-		},
-	}, nil)
+	mockClient.
+		On(
+			"WrapKey",
+			mock.Anything,
+			"test-key",
+			"",
+			mock.MatchedBy(func(params azkeys.KeyOperationParameters) bool {
+				// Verify that the value can be parsed as a JWK
+				if params.Value == nil {
+					return false
+				}
+				_, err := jwk.ParseKey(params.Value)
+				return err == nil
+			}),
+			mock.Anything,
+		).
+		Return(azkeys.WrapKeyResponse{
+			KeyOperationResult: azkeys.KeyOperationResult{
+				Result: wrappedData,
+			},
+		}, nil)
 
 	// Store the key
 	err = storage.Store(t.Context(), signingKey)
 	require.NoError(t, err, "Failed to store key")
 
 	// Verify file exists and contains wrapped data
-	storedData, err := os.ReadFile(keyPath)
+	storedData, err := os.ReadFile(keyPath) //nolint:gosec
 	require.NoError(t, err, "Failed to read stored file")
 	assert.Equal(t, wrappedData, storedData, "Stored data should match wrapped data")
 
@@ -233,9 +251,10 @@ func TestAzureKeyVaultKeyStorage_RoundTrip(t *testing.T) {
 	// Mock WrapKey to capture the original data and return wrapped data
 	var originalKeyData []byte
 	wrappedData := []byte("wrapped-key-simulation")
-	mockClient.On("WrapKey", mock.Anything, "test-key", "", mock.Anything, mock.Anything).
+	mockClient.
+		On("WrapKey", mock.Anything, "test-key", "", mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			params := args.Get(3).(azkeys.KeyOperationParameters)
+			params := args.Get(3).(azkeys.KeyOperationParameters) //nolint:forcetypeassert
 			if params.Value != nil {
 				originalKeyData = make([]byte, len(params.Value))
 				copy(originalKeyData, params.Value)
@@ -253,18 +272,27 @@ func TestAzureKeyVaultKeyStorage_RoundTrip(t *testing.T) {
 	require.NotEmpty(t, originalKeyData, "Original key data should be captured")
 
 	// Verify wrapped data is on disk
-	storedData, err := os.ReadFile(keyPath)
+	storedData, err := os.ReadFile(keyPath) //nolint:gosec
 	require.NoError(t, err)
 	assert.Equal(t, wrappedData, storedData)
 
 	// Mock UnwrapKey to return the original data
-	mockClient.On("UnwrapKey", mock.Anything, "test-key", "", mock.MatchedBy(func(params azkeys.KeyOperationParameters) bool {
-		return params.Value != nil && string(params.Value) == string(wrappedData)
-	}), mock.Anything).Return(azkeys.UnwrapKeyResponse{
-		KeyOperationResult: azkeys.KeyOperationResult{
-			Result: originalKeyData,
-		},
-	}, nil)
+	mockClient.
+		On(
+			"UnwrapKey",
+			mock.Anything,
+			"test-key",
+			"",
+			mock.MatchedBy(func(params azkeys.KeyOperationParameters) bool {
+				return params.Value != nil && string(params.Value) == string(wrappedData)
+			}),
+			mock.Anything,
+		).
+		Return(azkeys.UnwrapKeyResponse{
+			KeyOperationResult: azkeys.KeyOperationResult{
+				Result: originalKeyData,
+			},
+		}, nil)
 
 	// Load the key back
 	loadedKey, err := storage.Load(t.Context())

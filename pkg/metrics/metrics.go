@@ -12,7 +12,7 @@ import (
 	"github.com/italypaleale/tsiam/pkg/config"
 )
 
-const prefix = "tsiam"
+// const prefix = "tsiam"
 
 type AppMetrics struct {
 }
@@ -41,7 +41,8 @@ func NewAppMetrics(ctx context.Context) (m *AppMetrics, shutdownFn func(ctx cont
 		metric.WithResource(resource),
 		metric.WithReader(mr),
 	)
-	//meter := mp.Meter(prefix)
+	// TODO
+	// meter := mp.Meter(prefix)
 
 	return m, mp.Shutdown, nil
 }

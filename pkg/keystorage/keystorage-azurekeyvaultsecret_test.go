@@ -24,12 +24,12 @@ type MockAzureKeyVaultSecretClient struct {
 
 func (m *MockAzureKeyVaultSecretClient) GetSecret(ctx context.Context, name string, version string, options *azsecrets.GetSecretOptions) (azsecrets.GetSecretResponse, error) {
 	args := m.Called(ctx, name, version, options)
-	return args.Get(0).(azsecrets.GetSecretResponse), args.Error(1)
+	return args.Get(0).(azsecrets.GetSecretResponse), args.Error(1) //nolint:forcetypeassert,wrapcheck
 }
 
 func (m *MockAzureKeyVaultSecretClient) SetSecret(ctx context.Context, name string, parameters azsecrets.SetSecretParameters, options *azsecrets.SetSecretOptions) (azsecrets.SetSecretResponse, error) {
 	args := m.Called(ctx, name, parameters, options)
-	return args.Get(0).(azsecrets.SetSecretResponse), args.Error(1)
+	return args.Get(0).(azsecrets.SetSecretResponse), args.Error(1) //nolint:forcetypeassert,wrapcheck
 }
 
 func TestNewAzureKeyVaultSecretStorageWithClient(t *testing.T) {
@@ -89,11 +89,19 @@ func TestAzureKeyVaultSecretStorage_LoadExisting(t *testing.T) {
 
 	// Mock GetSecret to return the key
 	secretValue := string(keyJSON)
-	mockClient.On("GetSecret", mock.Anything, "test-secret", "", mock.Anything).Return(azsecrets.GetSecretResponse{
-		Secret: azsecrets.Secret{
-			Value: &secretValue,
-		},
-	}, nil)
+	mockClient.
+		On(
+			"GetSecret",
+			mock.Anything,
+			"test-secret",
+			"",
+			mock.Anything,
+		).
+		Return(azsecrets.GetSecretResponse{
+			Secret: azsecrets.Secret{
+				Value: &secretValue,
+			},
+		}, nil)
 
 	// Load the key
 	loadedKey, err := storage.Load(t.Context())
@@ -192,7 +200,7 @@ func TestAzureKeyVaultSecretStorage_RoundTrip(t *testing.T) {
 	var storedValue string
 	mockClient.On("SetSecret", mock.Anything, "test-secret", mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			params := args.Get(2).(azsecrets.SetSecretParameters)
+			params := args.Get(2).(azsecrets.SetSecretParameters) //nolint:forcetypeassert
 			if params.Value != nil {
 				storedValue = *params.Value
 			}

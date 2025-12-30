@@ -54,6 +54,7 @@ func getKey(ctx context.Context) (jwk.Key, error) {
 }
 
 func getKeyStorage() (s keystorage.KeyStorage, err error) {
+	var creds azcore.TokenCredential
 	cfg := config.Get()
 	switch cfg.SigningKey.Storage {
 	case "file":
@@ -63,14 +64,14 @@ func getKeyStorage() (s keystorage.KeyStorage, err error) {
 		s = nil
 	case "azurekeyvaultkeys":
 		akvk := cfg.SigningKey.AzureKeyVaultKeys
-		creds, err := getAzureKeyVaultCredentials(akvk.TenantID, akvk.ClientID, akvk.ClientSecret)
+		creds, err = getAzureKeyVaultCredentials(akvk.TenantID, akvk.ClientID, akvk.ClientSecret)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get Azure credentials object: %w", err)
 		}
 		s, err = keystorage.NewAzureKeyVaultKeyStorage(akvk.VaultURL, akvk.KeyName, akvk.StoragePath, creds)
 	case "azurekeyvaultsecrets":
 		akvs := cfg.SigningKey.AzureKeyVaultSecrets
-		creds, err := getAzureKeyVaultCredentials(akvs.TenantID, akvs.ClientID, akvs.ClientSecret)
+		creds, err = getAzureKeyVaultCredentials(akvs.TenantID, akvs.ClientID, akvs.ClientSecret)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get Azure credentials object: %w", err)
 		}

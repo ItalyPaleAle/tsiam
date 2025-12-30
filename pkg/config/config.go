@@ -113,7 +113,7 @@ type ConfigStorageFile struct {
 type ConfigStorageAzureKeyVaultKeys struct {
 	// VaultURL is the URL of the Azure Key Vault (e.g., https://myvault.vault.azure.net/).
 	// +required
-	VaultURL string `yaml:"vaultURL"`
+	VaultURL string `yaml:"vaultUrl"`
 
 	// KeyName is the name of the key in Azure Key Vault used for wrapping/unwrapping.
 	// The key is unwrapped using Azure Key Vault on app startup.
@@ -126,11 +126,11 @@ type ConfigStorageAzureKeyVaultKeys struct {
 
 	// TenantID is the Azure AD tenant ID for authentication.
 	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
-	TenantID string `yaml:"tenantID,omitempty"`
+	TenantID string `yaml:"tenantId,omitempty"`
 
 	// ClientID is the Azure AD application (client) ID for authentication.
 	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
-	ClientID string `yaml:"clientID,omitempty"`
+	ClientID string `yaml:"clientId,omitempty"`
 
 	// ClientSecret is the Azure AD application client secret for authentication.
 	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
@@ -141,7 +141,7 @@ type ConfigStorageAzureKeyVaultKeys struct {
 type ConfigStorageAzureKeyVaultSecrets struct {
 	// VaultURL is the URL of the Azure Key Vault (e.g., https://myvault.vault.azure.net/).
 	// +required
-	VaultURL string `yaml:"vaultURL"`
+	VaultURL string `yaml:"vaultUrl"`
 
 	// SecretName is the name of the secret in Azure Key Vault that stores the signing key.
 	// The entire key is stored in Azure Key Vault.
@@ -150,11 +150,11 @@ type ConfigStorageAzureKeyVaultSecrets struct {
 
 	// TenantID is the Azure AD tenant ID for authentication.
 	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
-	TenantID string `yaml:"tenantID,omitempty"`
+	TenantID string `yaml:"tenantId,omitempty"`
 
 	// ClientID is the Azure AD application (client) ID for authentication.
 	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
-	ClientID string `yaml:"clientID,omitempty"`
+	ClientID string `yaml:"clientId,omitempty"`
 
 	// ClientSecret is the Azure AD application client secret for authentication.
 	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
