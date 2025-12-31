@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"slices"
 
 	"tailscale.com/tailcfg"
 )
@@ -22,6 +23,11 @@ type TailscaleWhoIs struct {
 	CapMap        tailcfg.PeerCapMap `json:"capMap,omitempty"`
 }
 
+// TsiamCapability represents the structure of the tsiam capability value
+type TsiamCapability struct {
+	AllowedAudiences []string `json:"allowedAudiences"`
+}
+
 // IsAudiencePermittedForCaller checks if the caller has permission to request this audience
 func (w *TailscaleWhoIs) IsAudiencePermittedForCaller(audience string, allowWithoutCapability bool) bool {
 	// Check if the caller has the capability
@@ -33,12 +39,15 @@ func (w *TailscaleWhoIs) IsAudiencePermittedForCaller(audience string, allowWith
 
 	// Caller has the capability, check if the audience is in their allowed list
 	for _, capValue := range capValues {
-		// capValue is a RawMessage (JSON-encoded string)
-		// Try to unmarshal it as a string
-		var audStr string
-		err := json.Unmarshal([]byte(capValue), &audStr)
-		if err == nil && audStr == audience {
-			return true
+		// capValue is a RawMessage (JSON-encoded object)
+		// Try to unmarshal it as a TsiamCapability object
+		var tsiamCap TsiamCapability
+		err := json.Unmarshal([]byte(capValue), &tsiamCap)
+		if err == nil {
+			// Check if the audience is in the allowedAudiences list
+			if slices.Contains(tsiamCap.AllowedAudiences, audience) {
+				return true
+			}
 		}
 	}
 

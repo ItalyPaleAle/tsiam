@@ -499,7 +499,11 @@ For fine-grained control, use Tailscale ACL capabilities to specify which nodes 
       "dst": ["tag:tsiam"],
       "app": {
         "italypaleale.me/tsiam": [
-          "https://api.example.com"
+          {
+            "allowedAudiences": [
+              "https://api.example.com"
+            ]
+          }
         ]
       }
     },
@@ -508,8 +512,12 @@ For fine-grained control, use Tailscale ACL capabilities to specify which nodes 
       "dst": ["tag:tsiam"],
       "app": {
         "italypaleale.me/tsiam": [
-          "https://api.example.com",
-          "sts.amazonaws.com"
+          {
+            "allowedAudiences": [
+              "https://api.example.com",
+              "sts.amazonaws.com"
+            ]
+          }
         ]
       }
     }

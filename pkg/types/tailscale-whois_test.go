@@ -1,6 +1,7 @@
 package types
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,9 +9,22 @@ import (
 )
 
 func TestWhois_IsAudiencePermittedForCaller(t *testing.T) {
-	// Helper to create RawMessage from string
-	makeRawMsg := func(s string) tailcfg.RawMessage {
-		return tailcfg.RawMessage(`"` + s + `"`)
+	// Helper to create RawMessage from capability object
+	makeCapabilityMsg := func(audiences ...string) tailcfg.RawMessage {
+		if len(audiences) == 0 {
+			return tailcfg.RawMessage(`{"allowedAudiences":[]}`)
+		}
+		// Build JSON array of audiences
+		var audiencesJSON strings.Builder
+		audiencesJSON.WriteString(`[`)
+		for i, aud := range audiences {
+			if i > 0 {
+				audiencesJSON.WriteRune(',')
+			}
+			audiencesJSON.WriteString(`"` + aud + `"`)
+		}
+		audiencesJSON.WriteString(`]`)
+		return tailcfg.RawMessage(`{"allowedAudiences":` + audiencesJSON.String() + `}`)
 	}
 
 	tests := []struct {
@@ -25,8 +39,7 @@ func TestWhois_IsAudiencePermittedForCaller(t *testing.T) {
 			audience: "https://api.example.com",
 			capMap: tailcfg.PeerCapMap{
 				AudienceCapability: []tailcfg.RawMessage{
-					makeRawMsg("https://api.example.com"),
-					makeRawMsg("https://other.example.com"),
+					makeCapabilityMsg("https://api.example.com", "https://other.example.com"),
 				},
 			},
 			allowWithoutCapability: false,
@@ -37,7 +50,7 @@ func TestWhois_IsAudiencePermittedForCaller(t *testing.T) {
 			audience: "https://notallowed.example.com",
 			capMap: tailcfg.PeerCapMap{
 				AudienceCapability: []tailcfg.RawMessage{
-					makeRawMsg("https://api.example.com"),
+					makeCapabilityMsg("https://api.example.com"),
 				},
 			},
 			allowWithoutCapability: false,
@@ -62,33 +75,32 @@ func TestWhois_IsAudiencePermittedForCaller(t *testing.T) {
 			audience: "https://api.example.com",
 			capMap: tailcfg.PeerCapMap{
 				"other/capability": []tailcfg.RawMessage{
-					makeRawMsg("https://api.example.com"),
+					makeCapabilityMsg("https://api.example.com"),
 				},
 			},
 			allowWithoutCapability: false,
 			expected:               false,
 		},
 		{
-			name:     "Capability has non-string JSON values (should be ignored)",
+			name:     "Capability has malformed JSON (should be ignored)",
 			audience: "https://api.example.com",
 			capMap: tailcfg.PeerCapMap{
 				AudienceCapability: []tailcfg.RawMessage{
-					"123",
-					"true",
-					makeRawMsg("https://api.example.com"),
+					"not valid json",
+					makeCapabilityMsg("https://api.example.com"),
 				},
 			},
 			allowWithoutCapability: false,
 			expected:               true,
 		},
 		{
-			name:     "Capability has only non-string values",
+			name:     "Capability has only malformed values",
 			audience: "https://api.example.com",
 			capMap: tailcfg.PeerCapMap{
 				AudienceCapability: []tailcfg.RawMessage{
 					"123",
 					"true",
-					`{"key": "value"}`,
+					`{"wrongField": ["https://api.example.com"]}`,
 				},
 			},
 			allowWithoutCapability: false,
@@ -99,9 +111,7 @@ func TestWhois_IsAudiencePermittedForCaller(t *testing.T) {
 			audience: "https://service2.example.com",
 			capMap: tailcfg.PeerCapMap{
 				AudienceCapability: []tailcfg.RawMessage{
-					makeRawMsg("https://service1.example.com"),
-					makeRawMsg("https://service2.example.com"),
-					makeRawMsg("https://service3.example.com"),
+					makeCapabilityMsg("https://service1.example.com", "https://service2.example.com", "https://service3.example.com"),
 				},
 			},
 			allowWithoutCapability: false,
@@ -112,11 +122,34 @@ func TestWhois_IsAudiencePermittedForCaller(t *testing.T) {
 			audience: "https://api.example.com",
 			capMap: tailcfg.PeerCapMap{
 				AudienceCapability: []tailcfg.RawMessage{
-					makeRawMsg("https://API.example.com"),
+					makeCapabilityMsg("https://API.example.com"),
 				},
 			},
 			allowWithoutCapability: false,
 			expected:               false,
+		},
+		{
+			name:     "Empty allowedAudiences array",
+			audience: "https://api.example.com",
+			capMap: tailcfg.PeerCapMap{
+				AudienceCapability: []tailcfg.RawMessage{
+					makeCapabilityMsg(),
+				},
+			},
+			allowWithoutCapability: false,
+			expected:               false,
+		},
+		{
+			name:     "Multiple capability values with audience in second one",
+			audience: "https://api.example.com",
+			capMap: tailcfg.PeerCapMap{
+				AudienceCapability: []tailcfg.RawMessage{
+					makeCapabilityMsg("https://other.example.com"),
+					makeCapabilityMsg("https://api.example.com"),
+				},
+			},
+			allowWithoutCapability: false,
+			expected:               true,
 		},
 	}
 
