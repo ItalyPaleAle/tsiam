@@ -39,7 +39,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ env.REPO_OWNER }}/le-cert-server
+          images: ghcr.io/${{ env.REPO_OWNER }}/tsiam
           # generate semver tags and 'latest' tag
           tags: |
             type=edge,branch=main
@@ -64,7 +64,7 @@ jobs:
           echo "BUILD_DATE: '$BUILD_DATE'"
           echo "COMMIT_HASH: '$COMMIT_HASH'"
 
-          BUILDINFO_PKG="github.com/italypaleale/le-cert-server/pkg/buildinfo"
+          BUILDINFO_PKG="github.com/italypaleale/tsiam/pkg/buildinfo"
           BUILD_LDFLAGS="-X ${BUILDINFO_PKG}.Production=1 -X ${BUILDINFO_PKG}.AppVersion=${BUILD_VERSION} -X ${BUILDINFO_PKG}.BuildId=${BUILD_ID} -X ${BUILDINFO_PKG}.BuildDate=${BUILD_DATE} -X ${BUILDINFO_PKG}.CommitHash=${COMMIT_HASH} -buildid=${BUILD_ID}"
 
           echo "BUILD_LDFLAGS=$BUILD_LDFLAGS" >> $GITHUB_ENV
@@ -85,95 +85,95 @@ jobs:
           mkdir -p .bin .out
 
           echo -e "\n###\nBuilding linux/amd64\n"
-          mkdir .bin/le-cert-server-${{ env.BUILD_ID }}-linux-amd64
+          mkdir .bin/tsiam-${{ env.BUILD_ID }}-linux-amd64
           GOOS=linux GOARCH=amd64 \
             go build \
               -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/le-cert-server-${{ env.BUILD_ID }}-linux-amd64/le-cert-server \
+              -o .bin/tsiam-${{ env.BUILD_ID }}-linux-amd64/tsiam \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/le-cert-server-${{ env.BUILD_ID }}-linux-amd64
-          cp -r README.md .bin/le-cert-server-${{ env.BUILD_ID }}-linux-amd64
-          (cd .bin && tar -czvf ../.out/le-cert-server-${{ env.BUILD_ID }}-linux-amd64.tar.gz le-cert-server-${{ env.BUILD_ID }}-linux-amd64)
+          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-linux-amd64
+          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-linux-amd64
+          (cd .bin && tar -czvf ../.out/tsiam-${{ env.BUILD_ID }}-linux-amd64.tar.gz tsiam-${{ env.BUILD_ID }}-linux-amd64)
 
           echo -e "\n###\nBuilding linux/arm64\n"
-          mkdir .bin/le-cert-server-${{ env.BUILD_ID }}-linux-arm64
+          mkdir .bin/tsiam-${{ env.BUILD_ID }}-linux-arm64
           GOOS=linux GOARCH=arm64 \
             go build \
               -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/le-cert-server-${{ env.BUILD_ID }}-linux-arm64/le-cert-server \
+              -o .bin/tsiam-${{ env.BUILD_ID }}-linux-arm64/tsiam \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/le-cert-server-${{ env.BUILD_ID }}-linux-arm64
-          cp -r README.md .bin/le-cert-server-${{ env.BUILD_ID }}-linux-arm64
-          (cd .bin && tar -czvf ../.out/le-cert-server-${{ env.BUILD_ID }}-linux-arm64.tar.gz le-cert-server-${{ env.BUILD_ID }}-linux-arm64)
+          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-linux-arm64
+          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-linux-arm64
+          (cd .bin && tar -czvf ../.out/tsiam-${{ env.BUILD_ID }}-linux-arm64.tar.gz tsiam-${{ env.BUILD_ID }}-linux-arm64)
 
           echo -e "\n###\nBuilding linux/armv7\n"
-          mkdir .bin/le-cert-server-${{ env.BUILD_ID }}-linux-armv7
+          mkdir .bin/tsiam-${{ env.BUILD_ID }}-linux-armv7
           GOOS=linux GOARCH=arm GOARM=7 \
             go build \
               -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/le-cert-server-${{ env.BUILD_ID }}-linux-armv7/le-cert-server \
+              -o .bin/tsiam-${{ env.BUILD_ID }}-linux-armv7/tsiam \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/le-cert-server-${{ env.BUILD_ID }}-linux-armv7
-          cp -r README.md .bin/le-cert-server-${{ env.BUILD_ID }}-linux-armv7
-          (cd .bin && tar -czvf ../.out/le-cert-server-${{ env.BUILD_ID }}-linux-armv7.tar.gz le-cert-server-${{ env.BUILD_ID }}-linux-armv7)
+          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-linux-armv7
+          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-linux-armv7
+          (cd .bin && tar -czvf ../.out/tsiam-${{ env.BUILD_ID }}-linux-armv7.tar.gz tsiam-${{ env.BUILD_ID }}-linux-armv7)
 
           echo -e "\n###\nBuilding windows/amd64\n"
-          mkdir .bin/le-cert-server-${{ env.BUILD_ID }}-windows-x64
+          mkdir .bin/tsiam-${{ env.BUILD_ID }}-windows-x64
           GOOS=windows GOARCH=amd64 \
             go build \
               -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/le-cert-server-${{ env.BUILD_ID }}-windows-x64/le-cert-server.exe \
+              -o .bin/tsiam-${{ env.BUILD_ID }}-windows-x64/tsiam.exe \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/le-cert-server-${{ env.BUILD_ID }}-windows-x64
-          cp -r README.md .bin/le-cert-server-${{ env.BUILD_ID }}-windows-x64
-          (cd .bin/le-cert-server-${{ env.BUILD_ID }}-windows-x64 && zip -r ../../.out/le-cert-server-${{ env.BUILD_ID }}-windows-x64.zip .)
+          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-windows-x64
+          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-windows-x64
+          (cd .bin/tsiam-${{ env.BUILD_ID }}-windows-x64 && zip -r ../../.out/tsiam-${{ env.BUILD_ID }}-windows-x64.zip .)
 
           echo -e "\n###\nBuilding windows/arm64\n"
-          mkdir .bin/le-cert-server-${{ env.BUILD_ID }}-windows-arm64
+          mkdir .bin/tsiam-${{ env.BUILD_ID }}-windows-arm64
           GOOS=windows GOARCH=arm64 \
             go build \
               -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/le-cert-server-${{ env.BUILD_ID }}-windows-arm64/le-cert-server.exe \
+              -o .bin/tsiam-${{ env.BUILD_ID }}-windows-arm64/tsiam.exe \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/le-cert-server-${{ env.BUILD_ID }}-windows-arm64
-          cp -r README.md .bin/le-cert-server-${{ env.BUILD_ID }}-windows-arm64
-          (cd .bin/le-cert-server-${{ env.BUILD_ID }}-windows-arm64 && zip -r ../../.out/le-cert-server-${{ env.BUILD_ID }}-windows-arm64.zip .)
+          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-windows-arm64
+          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-windows-arm64
+          (cd .bin/tsiam-${{ env.BUILD_ID }}-windows-arm64 && zip -r ../../.out/tsiam-${{ env.BUILD_ID }}-windows-arm64.zip .)
 
           echo -e "\n###\nBuilding freebsd/amd64\n"
-          mkdir .bin/le-cert-server-${{ env.BUILD_ID }}-freebsd-amd64
+          mkdir .bin/tsiam-${{ env.BUILD_ID }}-freebsd-amd64
           GOOS=freebsd GOARCH=amd64 \
             go build \
               -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/le-cert-server-${{ env.BUILD_ID }}-freebsd-amd64/le-cert-server \
+              -o .bin/tsiam-${{ env.BUILD_ID }}-freebsd-amd64/tsiam \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/le-cert-server-${{ env.BUILD_ID }}-freebsd-amd64
-          cp -r README.md .bin/le-cert-server-${{ env.BUILD_ID }}-freebsd-amd64
-          (cd .bin && tar -czvf ../.out/le-cert-server-${{ env.BUILD_ID }}-freebsd-amd64.tar.gz le-cert-server-${{ env.BUILD_ID }}-freebsd-amd64)
+          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-freebsd-amd64
+          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-freebsd-amd64
+          (cd .bin && tar -czvf ../.out/tsiam-${{ env.BUILD_ID }}-freebsd-amd64.tar.gz tsiam-${{ env.BUILD_ID }}-freebsd-amd64)
 
           echo -e "\n###\nBuilding freebsd/arm64\n"
-          mkdir .bin/le-cert-server-${{ env.BUILD_ID }}-freebsd-arm64
+          mkdir .bin/tsiam-${{ env.BUILD_ID }}-freebsd-arm64
           GOOS=freebsd GOARCH=arm64 \
             go build \
               -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/le-cert-server-${{ env.BUILD_ID }}-freebsd-arm64/le-cert-server \
+              -o .bin/tsiam-${{ env.BUILD_ID }}-freebsd-arm64/tsiam \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/le-cert-server-${{ env.BUILD_ID }}-freebsd-arm64
-          cp -r README.md .bin/le-cert-server-${{ env.BUILD_ID }}-freebsd-arm64
-          (cd .bin && tar -czvf ../.out/le-cert-server-${{ env.BUILD_ID }}-freebsd-arm64.tar.gz le-cert-server-${{ env.BUILD_ID }}-freebsd-arm64)
+          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-freebsd-arm64
+          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-freebsd-arm64
+          (cd .bin && tar -czvf ../.out/tsiam-${{ env.BUILD_ID }}-freebsd-arm64.tar.gz tsiam-${{ env.BUILD_ID }}-freebsd-arm64)
 
           echo -e "\n###\nLinks for Docker buildx\n"
           (
             cd .bin && \
-            ln -v -s le-cert-server-${{ env.BUILD_ID }}-linux-amd64 linux-amd64 && \
-            ln -v -s le-cert-server-${{ env.BUILD_ID }}-linux-arm64 linux-arm64 && \
-            ln -v -s le-cert-server-${{ env.BUILD_ID }}-linux-armv7 linux-arm \
+            ln -v -s tsiam-${{ env.BUILD_ID }}-linux-amd64 linux-amd64 && \
+            ln -v -s tsiam-${{ env.BUILD_ID }}-linux-arm64 linux-arm64 && \
+            ln -v -s tsiam-${{ env.BUILD_ID }}-linux-armv7 linux-arm \
           )
 
           echo -e "\n###\nCompilation done\n"
@@ -205,62 +205,62 @@ jobs:
         uses: actions/attest-build-provenance@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          subject-name: linux-amd64/le-cert-server
+          subject-name: linux-amd64/tsiam
           subject-path: |
-            .bin/le-cert-server-*-linux-amd64/le-cert-server
+            .bin/tsiam-*-linux-amd64/tsiam
 
       - name: Binary attestation linux-arm64
         uses: actions/attest-build-provenance@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          subject-name: linux-arm64/le-cert-server
+          subject-name: linux-arm64/tsiam
           subject-path: |
-            .bin/le-cert-server-*-linux-arm64/le-cert-server
+            .bin/tsiam-*-linux-arm64/tsiam
 
       - name: Binary attestation linux-armv7
         uses: actions/attest-build-provenance@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          subject-name: linux-armv7/le-cert-server
+          subject-name: linux-armv7/tsiam
           subject-path: |
-            .bin/le-cert-server-*-linux-armv7/le-cert-server
+            .bin/tsiam-*-linux-armv7/tsiam
 
       - name: Binary attestation windows-x64
         uses: actions/attest-build-provenance@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          subject-name: windows-x64/le-cert-server
+          subject-name: windows-x64/tsiam
           subject-path: |
-            .bin/le-cert-server-*-windows-x64/le-cert-server.exe
+            .bin/tsiam-*-windows-x64/tsiam.exe
 
       - name: Binary attestation windows-arm64
         uses: actions/attest-build-provenance@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          subject-name: windows-arm64/le-cert-server
+          subject-name: windows-arm64/tsiam
           subject-path: |
-            .bin/le-cert-server-*-windows-arm64/le-cert-server.exe
+            .bin/tsiam-*-windows-arm64/tsiam.exe
 
       - name: Binary attestation freebsd-amd64
         uses: actions/attest-build-provenance@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          subject-name: freebsd-amd64/le-cert-server
+          subject-name: freebsd-amd64/tsiam
           subject-path: |
-            .bin/le-cert-server-*-freebsd-amd64/le-cert-server
+            .bin/tsiam-*-freebsd-amd64/tsiam
 
       - name: Binary attestation freebsd-arm64
         uses: actions/attest-build-provenance@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          subject-name: freebsd-arm64/le-cert-server
+          subject-name: freebsd-arm64/tsiam
           subject-path: |
-            .bin/le-cert-server-*-freebsd-arm64/le-cert-server
+            .bin/tsiam-*-freebsd-arm64/tsiam
 
       - name: Container image attestation
         uses: actions/attest-build-provenance@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          subject-name: 'ghcr.io/${{ env.REPO_OWNER }}/le-cert-server'
+          subject-name: 'ghcr.io/${{ env.REPO_OWNER }}/tsiam'
           subject-digest: ${{ steps.docker-build-push.outputs.digest }}
           push-to-registry: true
