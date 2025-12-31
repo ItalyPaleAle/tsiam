@@ -5,17 +5,20 @@ import (
 	"slices"
 
 	"tailscale.com/tailcfg"
+
+	"github.com/italypaleale/tsiam/pkg/buildinfo"
 )
 
 const (
 	// AudienceCapability is the Tailscale ACL capability name used for per-caller audience authorization
 	// Callers must have this capability with their allowed audiences in Tailscale ACL grants
-	AudienceCapability = tailcfg.PeerCapability("italypaleale.me/tsiam")
+	AudienceCapability = tailcfg.PeerCapability(buildinfo.AppNamespace)
 )
 
 type TailscaleWhoIs struct {
 	NodeID        string             `json:"nodeId"`
 	Name          string             `json:"name"`
+	Hostname      string             `json:"hostname"`
 	IP4           string             `json:"ip4"`
 	IP6           string             `json:"ip6"`
 	UserLoginName string             `json:"userLoginName"`

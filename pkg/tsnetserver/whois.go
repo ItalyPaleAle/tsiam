@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/italypaleale/tsiam/pkg/types"
@@ -37,9 +38,12 @@ func (t *TSNetServer) WhoIs(r *http.Request) (res types.TailscaleWhoIs, err erro
 		// Node ID: use the "stable" ID, which is a string
 		NodeID: string(whois.Node.StableID),
 
+		// Name: remove the trailing dot
+		Name: strings.TrimSuffix(whois.Node.Name, "."),
+
 		// For the host name, we use ComputedNameWithHost
 		// This is usually the Magic DNS name
-		Name: whois.Node.ComputedNameWithHost,
+		Hostname: whois.Node.ComputedNameWithHost,
 
 		Tags:          whois.Node.Tags,
 		UserLoginName: whois.UserProfile.LoginName,

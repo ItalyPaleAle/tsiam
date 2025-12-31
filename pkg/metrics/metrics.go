@@ -41,6 +41,7 @@ func NewAppMetrics(ctx context.Context) (m *AppMetrics, shutdownFn func(ctx cont
 		metric.WithResource(resource),
 		metric.WithReader(mr),
 	)
+	//nolint:godox
 	// TODO
 	// meter := mp.Meter(prefix)
 

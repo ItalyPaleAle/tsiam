@@ -45,8 +45,6 @@ linters:
     - varnamelen
     - wsl
     - wsl_v5
-    # Disable during development, as this highlights TODOs as errors
-    - godox
 
 formatters:
   # Enable specific formatter.

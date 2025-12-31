@@ -7,6 +7,8 @@ import (
 	"github.com/italypaleale/tsiam/pkg/utils"
 )
 
+const AppNamespace = "italypaleale.me/tsiam"
+
 // These variables will be set at build time
 var (
 	AppName    string = "tsiam"

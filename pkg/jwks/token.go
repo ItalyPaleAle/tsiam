@@ -37,11 +37,11 @@ func NewToken(key jwk.Key, opts TokenRequest) (TokenResponse, error) {
 	now := time.Now()
 	exp := now.Add(opts.Lifetime)
 	b := jwt.NewBuilder().
-		Subject(opts.Subject.NodeID). // TODO: Change to hostname?
+		Subject(opts.Subject.Name).
 		IssuedAt(now).
 		NotBefore(now).
 		Expiration(exp).
-		Claim(buildinfo.Package, opts.Subject)
+		Claim(buildinfo.AppNamespace, opts.Subject)
 	if opts.Issuer != "" {
 		b = b.Issuer(opts.Issuer)
 	}
