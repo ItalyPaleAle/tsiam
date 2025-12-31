@@ -79,8 +79,8 @@ tsnet:
 
 # Token settings
 tokens:
-  # Token lifetime (min: 1m, max: 24h)
-  lifetime: 1h
+  # Token lifetime (min: 1m, max: 1h)
+  lifetime: 5m
 
 # Signing key configuration
 signingKey:
@@ -106,11 +106,24 @@ logs:
 
 ## Getting a JWT Token
 
-To obtain a JWT token, make a `POST` request to `/token` from any machine on your Tailnet. Adding the `X-Tsiam: 1` header is required for security:
+To obtain a JWT token, make a `POST` request to `/token` from any machine on your Tailnet with a required `resource` (or `audience`) query parameter. Adding the `X-Tsiam: 1` header is required for security.
 
 ```sh
-curl -X POST https://tsiam/token -H "X-Tsiam: 1"
+curl -X POST "https://tsiam/token?resource=https://api.example.com" -H "X-Tsiam: 1"
 ```
+
+### Query Parameters
+
+- **`resource`** (alias: `audience`) (required): The value for the audience (aud claim) in the assertion JWT token. This specifies the intended recipient of the token.
+
+#### Common Audience Values
+
+When exchanging tokens with cloud providers, use these audience values:
+
+- **AWS**: `sts.amazonaws.com` (for OIDC federation with AWS IAM)
+- **Microsoft Entra ID (Azure AD)**: `api://AzureADTokenExchange` (for Workload Identity Federation)
+- **Google Cloud**: Your workload identity pool audience (e.g., `//iam.googleapis.com/projects/PROJECT_ID/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID`)
+- **Custom APIs**: Use your API's identifier (e.g., `https://api.example.com`)
 
 > **Note**: The `/token` endpoint is only accessible from within your Tailnet. It cannot be accessed via Tailscale Funnel.
 
@@ -126,12 +139,13 @@ curl -X POST https://tsiam/token -H "X-Tsiam: 1"
 }
 ```
 
-The JWT token contains your Tailscale node identity in the `tsiam` claim:
+The JWT token contains your Tailscale node identity in the `tsiam` claim and the requested audience in the `aud` claim:
 
 ```json
 {
   "sub": "nodeId:abc123",
   "iss": "https://your-tsiam",
+  "aud": "https://api.example.com",
   "iat": 1735700600,
   "exp": 1735704000,
   "tsiam": {
@@ -145,17 +159,26 @@ The JWT token contains your Tailscale node identity in the `tsiam` claim:
 }
 ```
 
+### Audience Authorization
+
+tsiam implements a two-layer authorization model for audience values:
+
+1. **Global Allowlist**: The service configuration defines which audiences can be requested by any node. Only audiences in the `tokens.allowedAudiences` configuration will be issued.
+2. **Per-Caller Authorization**: Individual nodes can be granted permission to request specific audiences via Tailscale ACL capabilities. This provides fine-grained control over which services can obtain tokens for which audiences.
+
+See [Configuring Audience Authorization](#configuring-audience-authorization) for setup instructions.
+
 ### Code Examples
 
 <details>
 <summary><strong>cURL</strong></summary>
 
 ```sh
-# Get a token
-TOKEN=$(curl -s -X POST https://tsiam/token -H "X-Tsiam: 1" | jq -r '.access_token')
+# Get a token for a specific audience
+TOKEN=$(curl -s -X POST "https://tsiam/token?resource=https://api.example.com" -H "X-Tsiam: 1" | jq -r '.access_token')
 
 # Use the token
-curl -H "Authorization: Bearer $TOKEN" https://your-api.example.com/resource
+curl -H "Authorization: Bearer $TOKEN" https://api.example.com/resource
 ```
 
 </details>
@@ -164,8 +187,11 @@ curl -H "Authorization: Bearer $TOKEN" https://your-api.example.com/resource
 <summary><strong>Node.js</strong></summary>
 
 ```javascript
-async function getToken() {
-  const response = await fetch('https://tsiam/token', {
+async function getToken(audience) {
+  const url = new URL('https://tsiam/token');
+  url.searchParams.set('resource', audience);
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'X-Tsiam': '1',
@@ -181,8 +207,8 @@ async function getToken() {
 }
 
 // Usage
-const token = await getToken();
-const response = await fetch('https://your-api.example.com/resource', {
+const token = await getToken('https://api.example.com');
+const response = await fetch('https://api.example.com/resource', {
   headers: {
     'Authorization': `Bearer ${token}`,
   },
@@ -201,6 +227,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 type TokenResponse struct {
@@ -209,8 +236,16 @@ type TokenResponse struct {
 	ExpiresIn   string `json:"expires_in"`
 }
 
-func getToken() (string, error) {
-	req, err := http.NewRequest("POST", "https://tsiam/token", nil)
+func getToken(audience string) (string, error) {
+	u, err := url.Parse("https://tsiam/token")
+	if err != nil {
+		return "", err
+	}
+	q := u.Query()
+	q.Set("resource", audience)
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequest("POST", u.String(), nil)
 	if err != nil {
 		return "", err
 	}
@@ -232,13 +267,13 @@ func getToken() (string, error) {
 }
 
 func main() {
-	token, err := getToken()
+	token, err := getToken("https://api.example.com")
 	if err != nil {
 		panic(err)
 	}
 
 	// Use the token
-	req, _ := http.NewRequest("GET", "https://your-api.example.com/resource", nil)
+	req, _ := http.NewRequest("GET", "https://api.example.com/resource", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	client := http.DefaultClient()
@@ -260,18 +295,19 @@ func main() {
 ```python
 import requests
 
-def get_token():
+def get_token(audience):
     response = requests.post(
         "https://tsiam/token",
+        params={"resource": audience},
         headers={"X-Tsiam": "1"}
     )
     response.raise_for_status()
     return response.json()["access_token"]
 
 # Usage
-token = get_token()
+token = get_token("https://api.example.com")
 response = requests.get(
-    "https://your-api.example.com/resource",
+    "https://api.example.com/resource",
     headers={"Authorization": f"Bearer {token}"}
 )
 ```
@@ -297,9 +333,12 @@ public class TsiamClient
 {
     private readonly HttpClient _client = new();
 
-    public async Task<string> GetTokenAsync()
+    public async Task<string> GetTokenAsync(string audience)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, "https://tsiam/token");
+        var uriBuilder = new UriBuilder("https://tsiam/token");
+        uriBuilder.Query = $"resource={Uri.EscapeDataString(audience)}";
+
+        var request = new HttpRequestMessage(HttpMethod.Post, uriBuilder.Uri);
         request.Headers.Add("X-Tsiam", "1");
 
         var response = await _client.SendAsync(request);
@@ -312,9 +351,9 @@ public class TsiamClient
         return tokenResponse.AccessToken;
     }
 
-    public async Task<string> CallApiAsync(string url)
+    public async Task<string> CallApiAsync(string url, string audience)
     {
-        var token = await GetTokenAsync();
+        var token = await GetTokenAsync(audience);
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -332,9 +371,11 @@ public class TsiamClient
 
 ```java
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import com.google.gson.Gson;
 
 public class TsiamClient {
@@ -347,9 +388,12 @@ public class TsiamClient {
         String expires_in
     ) {}
 
-    public String getToken() throws Exception {
+    public String getToken(String audience) throws Exception {
+        String encodedAudience = URLEncoder.encode(audience, StandardCharsets.UTF_8);
+        String url = "https://tsiam/token?resource=" + encodedAudience;
+
         HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("https://tsiam/token"))
+            .uri(URI.create(url))
             .header("X-Tsiam", "1")
             .POST(HttpRequest.BodyPublishers.noBody())
             .build();
@@ -361,8 +405,8 @@ public class TsiamClient {
         return tokenResponse.access_token();
     }
 
-    public String callApi(String url) throws Exception {
-        String token = getToken();
+    public String callApi(String url, String audience) throws Exception {
+        String token = getToken(audience);
 
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create(url))
@@ -421,6 +465,74 @@ To allow external services to verify your JWT tokens, you can expose the OIDC en
    - `https://tsiam.<your-tailnet>.ts.net/.well-known/openid-configuration`
 
 > **Security Note**: Only the `.well-known` endpoints are exposed via Funnel. The `/token` endpoint remains accessible only from within your Tailnet.
+
+## Configuring Audience Authorization
+
+tsiam implements a two-layer security model for controlling which JWT audiences can be requested:
+
+### 1. Global Allowlist (Required)
+
+Configure allowed audiences in your `config.yaml`:
+
+```yaml
+tokens:
+  lifetime: 5m
+  # List of audiences that can be requested
+  allowedAudiences:
+    - "https://api.example.com"
+    - "https://database.example.com"
+    - "api://AzureADTokenExchange"  # For Azure workload identity
+    - "sts.amazonaws.com"            # For AWS IAM federation
+```
+
+Only audiences listed in `allowedAudiences` can be requested, providing a service-level security boundary.
+
+### 2. Per-Caller Authorization (Recommended)
+
+For fine-grained control, use Tailscale ACL capabilities to specify which nodes can request which audiences. Add the capability grant `https://italypaleale.me/tsiam` to your Tailscale ACL policy:
+
+```json
+{
+  "grants": [
+    {
+      "src": ["tag:webserver"],
+      "dst": ["tag:tsiam"],
+      "app": {
+        "https://italypaleale.me/tsiam": [
+          "https://api.example.com"
+        ]
+      }
+    },
+    {
+      "src": ["tag:backend"],
+      "dst": ["tag:tsiam"],
+      "app": {
+        "https://italypaleale.me/tsiam": [
+          "https://api.example.com",
+          "sts.amazonaws.com"
+        ]
+      }
+    }
+  ]
+}
+```
+
+In this example:
+
+- Nodes tagged `tag:webserver` can only request tokens for `https://api.example.com`
+- Nodes tagged `tag:backend` can request tokens for both `https://api.example.com` and `sts.amazonaws.com` (AWS)
+- The tsiam service must be tagged with `tag:tsiam`
+
+#### Configuration Options
+
+```yaml
+tokens:
+  # Allow nodes without the capability to request any globally-allowed audience
+  # If false (default), all nodes must have explicit capability grants
+  allowEmptyNodeCapability: false
+```
+
+**Security Best Practice**: Keep `allowEmptyNodeCapability: false` and explicitly grant capabilities to each node or tag, for an extra layer of security.
 
 ## License
 

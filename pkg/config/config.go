@@ -50,6 +50,22 @@ type ConfigTokens struct {
 	// Must be between 1 and 60 minutes
 	// +default "5m"
 	Lifetime time.Duration `yaml:"lifetime"`
+
+	// Allowed audiences (aud claim values) for JWT tokens
+	// Only audiences listed here can be requested by clients
+	//
+	// Examples:
+	// - AWS: `sts.amazonaws.com` (for OIDC federation with AWS IAM)
+	// - Microsoft Entra ID (Azure AD): `api://AzureADTokenExchange` (for Workload Identity Federation)
+	// - Google Cloud: Your workload identity pool audience (e.g., `//iam.googleapis.com/projects/PROJECT_ID/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID`)
+	// - Custom APIs: Use your API's identifier (e.g., `https://api.example.com`)
+	// +required
+	AllowedAudiences []string `yaml:"allowedAudiences"`
+
+	// If true, allows nodes without the audience capability to request any globally-allowed audience
+	// If false (default), all nodes must have the capability explicitly granted
+	// +default false
+	AllowEmptyNodeCapability bool `yaml:"allowEmptyNodeCapability"`
 }
 
 // ConfigTSNet holds tsnet configuration
@@ -202,6 +218,22 @@ func (c *Config) Validate(logger *slog.Logger) error {
 	}
 	if c.Tokens.Lifetime > 60*time.Minute {
 		return errors.New("configuration open 'tokens.lifetime' must not be more than 60 minutes")
+	}
+
+	// Audience configuration
+	if len(c.Tokens.AllowedAudiences) == 0 {
+		return errors.New("configuration option 'tokens.allowedAudiences' must contain at least one audience")
+	}
+	// Normalize and validate each audience
+	for i, aud := range c.Tokens.AllowedAudiences {
+		trimmed := strings.TrimSpace(aud)
+		if trimmed == "" {
+			return errors.New("configuration option 'tokens.allowedAudiences' contains an empty audience")
+		}
+		if len(trimmed) > 512 {
+			return errors.New("configuration option 'tokens.allowedAudiences' contains an audience exceeding 512 characters")
+		}
+		c.Tokens.AllowedAudiences[i] = trimmed
 	}
 
 	// Signing key algorithm

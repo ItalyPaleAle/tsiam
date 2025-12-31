@@ -58,6 +58,26 @@ tokens:
   ## Default: "5m"
   #lifetime: "5m"
 
+  ## tokens.allowedAudiences (list of strings)
+  ## Description:
+  ##   Allowed audiences (aud claim values) for JWT tokens
+  ##   Only audiences listed here can be requested by clients
+  ##
+  ##   Examples:
+  ##   - AWS: `sts.amazonaws.com` (for OIDC federation with AWS IAM)
+  ##   - Microsoft Entra ID (Azure AD): `api://AzureADTokenExchange` (for Workload Identity Federation)
+  ##   - Google Cloud: Your workload identity pool audience (e.g., `//iam.googleapis.com/projects/PROJECT_ID/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID`)
+  ##   - Custom APIs: Use your API's identifier (e.g., `https://api.example.com`)
+  ## Required
+  allowedAudiences: []
+
+  ## tokens.allowEmptyNodeCapability (boolean)
+  ## Description:
+  ##   If true, allows nodes without the audience capability to request any globally-allowed audience
+  ##   If false (default), all nodes must have the capability explicitly granted
+  ## Default: false
+  #allowEmptyNodeCapability: false
+
 signingKey:
   ## signingKey.storage (string)
   ## Description:

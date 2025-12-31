@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/italypaleale/go-kit/httpserver"
+
 	"github.com/italypaleale/tsiam/pkg/config"
 	"github.com/italypaleale/tsiam/pkg/jwks"
 )
@@ -39,10 +42,44 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Extract and validate audience parameter
+	audience, apiErr := extractAudience(r)
+	if apiErr != nil {
+		slog.WarnContext(r.Context(), "Invalid audience parameter",
+			slog.String("nodeId", whois.NodeID),
+			slog.String("nodeName", whois.Name),
+			slog.Any("error", apiErr),
+		)
+		apiErr.WriteResponse(w, r)
+		return
+	}
+
+	// Check if audience is globally allowed
+	if !slices.Contains(cfg.Tokens.AllowedAudiences, audience) {
+		slog.WarnContext(r.Context(), "Audience not in global allowlist",
+			slog.String("nodeId", whois.NodeID),
+			slog.String("nodeName", whois.Name),
+			slog.String("requested_audience", audience),
+		)
+		errAudienceNotAllowed.WriteResponse(w, r)
+		return
+	}
+
+	// Check per-caller authorization via Tailscale capabilities
+	if !whois.IsAudiencePermittedForCaller(audience, cfg.Tokens.AllowEmptyNodeCapability) {
+		slog.WarnContext(r.Context(), "Caller not permitted to request this audience",
+			slog.String("nodeId", whois.NodeID),
+			slog.String("nodeName", whois.Name),
+			slog.String("requested_audience", audience),
+		)
+		errAudienceNotPermitted.WriteResponse(w, r)
+		return
+	}
+
 	// Create JWT token
 	token, err := jwks.NewToken(s.signingKey, jwks.TokenRequest{
 		Issuer:   s.tokenIssuer(),
-		Audience: "", // TODO
+		Audience: audience,
 		Lifetime: cfg.Tokens.Lifetime,
 		Subject:  whois,
 	})
@@ -51,6 +88,15 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		errInternal.WriteResponse(w, r)
 		return
 	}
+
+	// Log successful token issuance
+	slog.InfoContext(r.Context(), "Token issued",
+		slog.String("nodeId", whois.NodeID),
+		slog.String("nodeName", whois.Name),
+		slog.String("userLogin", whois.UserLoginName),
+		slog.String("audience", audience),
+		slog.Int64("expiresIn", token.ExpiresIn),
+	)
 
 	//nolint:tagliatelle
 	type postTokenResponse struct {
@@ -105,4 +151,32 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 		TokenEndpoint: endpoint + "/token",
 		JWKSURI:       endpoint + "/.well-known/jwks.json",
 	})
+}
+
+// extractAudience extracts and validates the audience parameter from the request
+func extractAudience(r *http.Request) (string, *httpserver.ApiError) {
+	// Get both resource and audience parameters
+	resource := strings.TrimSpace(r.URL.Query().Get("resource"))
+	audience := strings.TrimSpace(r.URL.Query().Get("audience"))
+
+	var res string
+	switch {
+	case resource != "" && audience != "" && resource != audience:
+		// Both are provided and different
+		return "", errAudienceConflict
+	case resource != "":
+		res = resource
+	case audience != "":
+		res = audience
+	default:
+		// At least one must be defined
+		return "", errMissingAudience
+	}
+
+	// Validate the audience value
+	if len(res) > 512 {
+		return "", errAudienceTooLong
+	}
+
+	return res, nil
 }
