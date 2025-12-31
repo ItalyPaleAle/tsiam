@@ -78,10 +78,12 @@ func (s *Server) initAppServer() {
 	mux := http.NewServeMux()
 
 	// Register routes
-	mux.HandleFunc("POST /token", requireNotFunneledRequest(s.handlePostToken))
+	// Note: we do not enable CORS in the server on purpose, as we don't want browsers to make direct connections
+	// If needed, it can be added to public endpoints (.well-known/*) in the future
+	mux.HandleFunc("POST /token", httpserver.UseFunc(s.handlePostToken, requireNoBrowser, requireNotFunneledRequest))
 	mux.HandleFunc("GET /.well-known/jwks.json", s.handleGetJWKS)
 	mux.HandleFunc("GET /.well-known/openid-configuration", s.handleGetOpenIDConfiguration)
-	mux.HandleFunc("GET /healthz", requireNotFunneledRequest(s.handleGetHealthz))
+	mux.HandleFunc("GET /healthz", httpserver.UseFunc(s.handleGetHealthz, requireNotFunneledRequest))
 	mux.HandleFunc("GET /", s.handleGetRoot)
 
 	filters := []sloghttp.Filter{
@@ -205,16 +207,4 @@ func (s *Server) startAppServer(ctx context.Context) (err error) {
 
 func (s *Server) tokenIssuer() string {
 	return "https://" + s.tsnetServer.Hostname()
-}
-
-func requireNotFunneledRequest(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if tsnetserver.IsFunneledRequest(r) {
-			// If the request is funneled, return a 404
-			http.NotFound(w, r)
-			return
-		}
-
-		next(w, r)
-	}
 }
