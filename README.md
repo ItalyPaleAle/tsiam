@@ -141,21 +141,40 @@ When exchanging tokens with cloud providers, use these audience values:
 
 The JWT token contains your Tailscale node identity in the `tsiam` claim and the requested audience in the `aud` claim:
 
-```json
+```jsonc
 {
-  "sub": "nodeId:abc123",
+  // Subject: the Tailscale node identity
+  "sub": "my-server.tailnet-name.ts.net",
+
+  // Issuer: the tsiam service that issued this token
   "iss": "https://your-tsiam",
-  "aud": "https://api.example.com",
+
+  // Audience: the intended recipient of this token
+  "aud": [ "https://api.example.com" ],
+
+  // Issued At: when the token was created (Unix timestamp)
   "iat": 1735700600,
+
+  // Expiration: when the token expires (Unix timestamp)
   "exp": 1735704000,
+
+  // Not Before: earliest time the token can be used (Unix timestamp)
+  "nbf": 1735700600,
+
+  // Custom claim with detailed Tailscale node information
   "tsiam": {
     "nodeId": "abc123",
-    "name": "my-server",
+    "name": "my-server.tailnet-name.ts.net",
+    "hostname": "my-server",
     "ip4": "100.64.0.1",
     "ip6": "fd7a:115c:a1e0::1",
     "userLoginName": "user@example.com",
     "tags": ["tag:webserver"]
-  }
+  },
+
+  // Unique token identifier: cryptographically random 24-byte value encoded as base64url
+  // Used for audit and correlation purposes across systems, not for replay prevention
+  "jti": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"
 }
 ```
 

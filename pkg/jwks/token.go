@@ -1,6 +1,8 @@
 package jwks
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
@@ -21,6 +23,7 @@ type TokenRequest struct {
 
 type TokenResponse struct {
 	Token     string
+	JTI       string
 	ExpiresIn int64
 	ExpiresOn int64
 	NotBefore int64
@@ -33,10 +36,19 @@ func NewToken(key jwk.Key, opts TokenRequest) (TokenResponse, error) {
 		return TokenResponse{}, errors.New("signing key does not contain an algorithm")
 	}
 
+	// Generate jti (JWT ID) using 24 cryptographically random bytes
+	jtiBytes := make([]byte, 24)
+	_, err := rand.Read(jtiBytes)
+	if err != nil {
+		return TokenResponse{}, fmt.Errorf("failed to generate jti: %w", err)
+	}
+	jti := base64.RawURLEncoding.EncodeToString(jtiBytes)
+
 	// Create JWT token
 	now := time.Now()
 	exp := now.Add(opts.Lifetime)
 	b := jwt.NewBuilder().
+		JwtID(jti).
 		Subject(opts.Subject.Name).
 		IssuedAt(now).
 		NotBefore(now).
@@ -62,6 +74,7 @@ func NewToken(key jwk.Key, opts TokenRequest) (TokenResponse, error) {
 
 	return TokenResponse{
 		Token:     string(signed),
+		JTI:       jti,
 		ExpiresIn: int64(opts.Lifetime.Seconds()),
 		ExpiresOn: exp.Unix(),
 		NotBefore: now.Unix(),
