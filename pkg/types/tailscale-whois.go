@@ -9,7 +9,7 @@ import (
 const (
 	// AudienceCapability is the Tailscale ACL capability name used for per-caller audience authorization
 	// Callers must have this capability with their allowed audiences in Tailscale ACL grants
-	AudienceCapability = tailcfg.PeerCapability("https://italypaleale.me/tsiam")
+	AudienceCapability = tailcfg.PeerCapability("italypaleale.me/tsiam")
 )
 
 type TailscaleWhoIs struct {

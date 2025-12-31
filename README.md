@@ -489,7 +489,7 @@ Only audiences listed in `allowedAudiences` can be requested, providing a servic
 
 ### 2. Per-Caller Authorization (Recommended)
 
-For fine-grained control, use Tailscale ACL capabilities to specify which nodes can request which audiences. Add the capability grant `https://italypaleale.me/tsiam` to your Tailscale ACL policy:
+For fine-grained control, use Tailscale ACL capabilities to specify which nodes can request which audiences. Add the capability grant `italypaleale.me/tsiam` to your Tailscale ACL policy:
 
 ```json
 {
@@ -498,7 +498,7 @@ For fine-grained control, use Tailscale ACL capabilities to specify which nodes 
       "src": ["tag:webserver"],
       "dst": ["tag:tsiam"],
       "app": {
-        "https://italypaleale.me/tsiam": [
+        "italypaleale.me/tsiam": [
           "https://api.example.com"
         ]
       }
@@ -507,7 +507,7 @@ For fine-grained control, use Tailscale ACL capabilities to specify which nodes 
       "src": ["tag:backend"],
       "dst": ["tag:tsiam"],
       "app": {
-        "https://italypaleale.me/tsiam": [
+        "italypaleale.me/tsiam": [
           "https://api.example.com",
           "sts.amazonaws.com"
         ]

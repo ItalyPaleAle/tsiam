@@ -26,7 +26,7 @@ var (
 func init() {
 	buildinfo, ok := debug.ReadBuildInfo()
 	if ok {
-		BuildDescription = buildinfo.Main.Path
+		Package = buildinfo.Main.Path
 	}
 
 	if BuildId != "" && BuildDate != "" && CommitHash != "" {
