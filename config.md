@@ -10,7 +10,7 @@
 | <a id="config-opt-logs-level"></a>`logs.level` | string | Controls log level and verbosity. Supported values: `debug`, `info` (default), `warn`, `error`.| Default: _"info"_ |
 | <a id="config-opt-logs-omithealthchecks"></a>`logs.omitHealthChecks` | boolean | If true, calls to the healthcheck endpoint (`/healthz`) are not included in the logs.| Default: _true_ |
 | <a id="config-opt-logs-json"></a>`logs.json` | boolean | If true, emits logs formatted as JSON, otherwise uses a text-based structured log format.<br>Defaults to false if a TTY is attached (e.g. when running the binary directly in the terminal or in development); true otherwise.|  |
-| <a id="config-opt-tokens-lifetime"></a>`tokens.lifetime` | duration | Token life time, as a Go duration| Default: _"1h"_ |
+| <a id="config-opt-tokens-lifetime"></a>`tokens.lifetime` | duration | Token life time, as a Go duration<br>Must be between 1 and 60 minutes| Default: _"5m"_ |
 | <a id="config-opt-signingkey-storage"></a>`signingKey.storage` | string | Key storage provider<br>Allowed values: "file" (default), "memory", "AzureKeyVaultKeys", "AzureKeyVaultSecrets"| Default: _"file"_ |
 | <a id="config-opt-signingkey-algorithm"></a>`signingKey.algorithm` | string | Signing algorithm to use. Supported values: RS256, ES256, ES384, ES512, EdDSA.| Default: _"ES256"_ |
 | <a id="config-opt-signingkey-curve"></a>`signingKey.curve` | string | Curve for EdDSA algorithm.<br>Currently only Ed25519 is supported.|  |

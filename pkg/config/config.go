@@ -47,7 +47,8 @@ type ConfigLogs struct {
 // ConfigTokens holds tokens configuration
 type ConfigTokens struct {
 	// Token life time, as a Go duration
-	// +default "1h"
+	// Must be between 1 and 60 minutes
+	// +default "5m"
 	Lifetime time.Duration `yaml:"lifetime"`
 }
 
@@ -199,8 +200,8 @@ func (c *Config) Validate(logger *slog.Logger) error {
 	if c.Tokens.Lifetime < time.Minute {
 		return errors.New("configuration open 'tokens.lifetime' must be at least 1 minute")
 	}
-	if c.Tokens.Lifetime > 24*time.Hour {
-		return errors.New("configuration open 'tokens.lifetime' must not be more than 24 hours")
+	if c.Tokens.Lifetime > 60*time.Minute {
+		return errors.New("configuration open 'tokens.lifetime' must not be more than 60 minutes")
 	}
 
 	// Signing key algorithm

@@ -54,8 +54,9 @@ tokens:
   ## tokens.lifetime (duration)
   ## Description:
   ##   Token life time, as a Go duration
-  ## Default: "1h"
-  #lifetime: "1h"
+  ##   Must be between 1 and 60 minutes
+  ## Default: "5m"
+  #lifetime: "5m"
 
 signingKey:
   ## signingKey.storage (string)

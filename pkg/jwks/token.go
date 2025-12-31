@@ -37,7 +37,7 @@ func NewToken(key jwk.Key, opts TokenRequest) (TokenResponse, error) {
 	now := time.Now()
 	exp := now.Add(opts.Lifetime)
 	b := jwt.NewBuilder().
-		Subject(opts.Subject.NodeID).
+		Subject(opts.Subject.NodeID). // TODO: Change to hostname?
 		IssuedAt(now).
 		NotBefore(now).
 		Expiration(exp).
