@@ -34,6 +34,7 @@ linters:
     - godot
     - ireturn
     - lll
+    - maintidx
     - mnd
     - nestif
     - nlreturn
