@@ -13,13 +13,13 @@ import (
 
 	httpserver "github.com/italypaleale/go-kit/httpserver"
 	slogkit "github.com/italypaleale/go-kit/slog"
+	"github.com/italypaleale/go-kit/tsnetserver"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	sloghttp "github.com/samber/slog-http"
 
 	"github.com/italypaleale/tsiam/pkg/config"
 	"github.com/italypaleale/tsiam/pkg/jwks"
 	"github.com/italypaleale/tsiam/pkg/metrics"
-	"github.com/italypaleale/tsiam/pkg/tsnetserver"
 )
 
 // Server is the server based on Gin

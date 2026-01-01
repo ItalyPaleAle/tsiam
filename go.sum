@@ -134,8 +134,8 @@ github.com/illarion/gonotify/v3 v3.0.2 h1:O7S6vcopHexutmpObkeWsnzMJt/r1hONIEogeV
 github.com/illarion/gonotify/v3 v3.0.2/go.mod h1:HWGPdPe817GfvY3w7cx6zkbzNZfi3QjcBm/wgVvEL1U=
 github.com/insomniacslk/dhcp v0.0.0-20231206064809-8c70d406f6d2 h1:9K06NfxkBh25x56yVhWWlKFE8YpicaSfHwoV8SFbueA=
 github.com/insomniacslk/dhcp v0.0.0-20231206064809-8c70d406f6d2/go.mod h1:3A9PQ1cunSDF/1rbTq99Ts4pVnycWg+vlPkfeD2NLFI=
-github.com/italypaleale/go-kit v0.0.0-20251231134057-37f9ef0f1791 h1:703bAJHrdhy5j7loqJspvH0HLLJ50Nl4+/PsAFDD+A4=
-github.com/italypaleale/go-kit v0.0.0-20251231134057-37f9ef0f1791/go.mod h1:fouGMuC/h+S9q3yJvvgatAL5wNBpTyRVk7oJ9+TAaTo=
+github.com/italypaleale/go-kit v0.0.0-20260101113137-0dd45cce063b h1:zIEzVWkKqrKWV7u6w2Ej2FSLsBTqqzK16nVPmG4+3UU=
+github.com/italypaleale/go-kit v0.0.0-20260101113137-0dd45cce063b/go.mod h1:tOsBG9KkPW5JDVZNmawXXJ3B4hAKOlbBbXyNgG+r93A=
 github.com/jellydator/ttlcache/v3 v3.1.0 h1:0gPFG0IHHP6xyUyXq+JaD8fwkDCqgqwohXNJBcYE71g=
 github.com/jellydator/ttlcache/v3 v3.1.0/go.mod h1:hi7MGFdMAwZna5n2tuvh63DvFLzVKySzCVW6+0gA2n4=
 github.com/jinzhu/copier v0.4.0 h1:w3ciUoD19shMCRargcpm0cm91ytaBhDvuRpz1ODO/U8=

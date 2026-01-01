@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -305,4 +306,16 @@ func (c *Config) Validate(logger *slog.Logger) error {
 	}
 
 	return nil
+}
+
+func (c *Config) GetTSNetStateDir() string {
+	stateDir := c.TSNet.StateDir
+	if stateDir == "" {
+		loaded := c.GetLoadedConfigPath()
+		if loaded != "" {
+			stateDir = filepath.Join(filepath.Dir(loaded), "tsnet")
+		}
+	}
+
+	return stateDir
 }

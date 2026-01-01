@@ -12,6 +12,7 @@ import (
 
 	"github.com/italypaleale/tsiam/pkg/config"
 	"github.com/italypaleale/tsiam/pkg/jwks"
+	"github.com/italypaleale/tsiam/pkg/tsnet"
 )
 
 // handleGetHealthz handles the requests to the healthcheck endpoint (`GET /healthz`)
@@ -66,7 +67,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check per-caller authorization via Tailscale capabilities
-	if !whois.IsAudiencePermittedForCaller(audience, cfg.Tokens.AllowEmptyNodeCapability) {
+	if !tsnet.IsAudiencePermittedForCaller(&whois, audience, cfg.Tokens.AllowEmptyNodeCapability) {
 		slog.WarnContext(r.Context(), "Caller not permitted to request this audience",
 			slog.String("nodeId", whois.NodeID),
 			slog.String("nodeName", whois.Name),

@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/italypaleale/go-kit/httpserver"
-	"github.com/italypaleale/tsiam/pkg/tsnetserver"
+	"github.com/italypaleale/go-kit/tsnetserver"
 )
 
 const tsiamHeaderName = "X-Tsiam"

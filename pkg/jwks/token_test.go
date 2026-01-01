@@ -8,12 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/italypaleale/go-kit/tsnetserver"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/lestrrat-go/jwx/v3/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/italypaleale/tsiam/pkg/types"
 )
 
 func TestNewToken(t *testing.T) {
@@ -26,7 +25,7 @@ func TestNewToken(t *testing.T) {
 	err = key.Set(jwk.AlgorithmKey, "ES256")
 	require.NoError(t, err)
 
-	testWhois := types.TailscaleWhoIs{
+	testWhois := tsnetserver.TailscaleWhoIs{
 		NodeID:        "test-node-id",
 		Name:          "test-node.example.com",
 		Hostname:      "test-node",

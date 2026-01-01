@@ -9,12 +9,12 @@ import (
 	"github.com/italypaleale/go-kit/servicerunner"
 	"github.com/italypaleale/go-kit/signals"
 	slogkit "github.com/italypaleale/go-kit/slog"
+	"github.com/italypaleale/go-kit/tsnetserver"
 
 	"github.com/italypaleale/tsiam/pkg/buildinfo"
 	"github.com/italypaleale/tsiam/pkg/config"
 	appmetrics "github.com/italypaleale/tsiam/pkg/metrics"
 	"github.com/italypaleale/tsiam/pkg/server"
-	"github.com/italypaleale/tsiam/pkg/tsnetserver"
 )
 
 func main() {
@@ -83,7 +83,12 @@ func main() {
 	}
 
 	// Init tsnetServer
-	ts, err := tsnetserver.NewTSNetServer(ctx)
+	ts, err := tsnetserver.NewTSNetServer(ctx, tsnetserver.NewTSNetServerOpts{
+		Hostname:  cfg.TSNet.Hostname,
+		AuthKey:   cfg.TSNet.AuthKey,
+		StateDir:  cfg.GetTSNetStateDir(),
+		Ephemeral: cfg.TSNet.Ephemeral,
+	})
 	if err != nil {
 		slogkit.FatalError(log, "Failed to init TSNet server", err)
 		return

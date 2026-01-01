@@ -1,14 +1,15 @@
-package types
+package tsnet
 
 import (
 	"strings"
 	"testing"
 
+	"github.com/italypaleale/go-kit/tsnetserver"
 	"github.com/stretchr/testify/assert"
 	"tailscale.com/tailcfg"
 )
 
-func TestWhois_IsAudiencePermittedForCaller(t *testing.T) {
+func TestIsAudiencePermittedForCaller(t *testing.T) {
 	// Helper to create RawMessage from capability object
 	makeCapabilityMsg := func(audiences ...string) tailcfg.RawMessage {
 		if len(audiences) == 0 {
@@ -155,12 +156,12 @@ func TestWhois_IsAudiencePermittedForCaller(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			whois := TailscaleWhoIs{
+			whois := tsnetserver.TailscaleWhoIs{
 				NodeID: "test-node",
 				CapMap: tt.capMap,
 			}
 
-			result := whois.IsAudiencePermittedForCaller(tt.audience, tt.allowWithoutCapability)
+			result := IsAudiencePermittedForCaller(&whois, tt.audience, tt.allowWithoutCapability)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

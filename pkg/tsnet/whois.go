@@ -1,9 +1,10 @@
-package types
+package tsnet
 
 import (
 	"encoding/json"
 	"slices"
 
+	"github.com/italypaleale/go-kit/tsnetserver"
 	"tailscale.com/tailcfg"
 
 	"github.com/italypaleale/tsiam/pkg/buildinfo"
@@ -15,26 +16,15 @@ const (
 	AudienceCapability = tailcfg.PeerCapability(buildinfo.AppNamespace)
 )
 
-type TailscaleWhoIs struct {
-	NodeID        string             `json:"nodeId"`
-	Name          string             `json:"name"`
-	Hostname      string             `json:"hostname"`
-	IP4           string             `json:"ip4"`
-	IP6           string             `json:"ip6"`
-	UserLoginName string             `json:"userLoginName"`
-	Tags          []string           `json:"tags,omitempty"`
-	CapMap        tailcfg.PeerCapMap `json:"capMap,omitempty"`
-}
-
 // TsiamCapability represents the structure of the tsiam capability value
 type TsiamCapability struct {
 	AllowedAudiences []string `json:"allowedAudiences"`
 }
 
 // IsAudiencePermittedForCaller checks if the caller has permission to request this audience
-func (w *TailscaleWhoIs) IsAudiencePermittedForCaller(audience string, allowWithoutCapability bool) bool {
+func IsAudiencePermittedForCaller(whois *tsnetserver.TailscaleWhoIs, audience string, allowWithoutCapability bool) bool {
 	// Check if the caller has the capability
-	capValues, ok := w.CapMap[AudienceCapability]
+	capValues, ok := whois.CapMap[AudienceCapability]
 	if !ok {
 		// If allowWithoutCapability is true, allow access to any globally-allowed audience
 		return allowWithoutCapability

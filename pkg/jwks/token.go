@@ -7,18 +7,18 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/italypaleale/go-kit/tsnetserver"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/lestrrat-go/jwx/v3/jwt"
 
 	"github.com/italypaleale/tsiam/pkg/buildinfo"
-	"github.com/italypaleale/tsiam/pkg/types"
 )
 
 type TokenRequest struct {
 	Issuer   string
 	Audience string
 	Lifetime time.Duration
-	Subject  types.TailscaleWhoIs
+	Subject  tsnetserver.TailscaleWhoIs
 }
 
 type TokenResponse struct {

@@ -7,7 +7,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0-beta.2
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys v1.4.0
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.4.0
-	github.com/italypaleale/go-kit v0.0.0-20251231134057-37f9ef0f1791
+	github.com/italypaleale/go-kit v0.0.0-20260101113137-0dd45cce063b
 	github.com/jinzhu/copier v0.4.0
 	github.com/lestrrat-go/jwx/v3 v3.0.12
 	github.com/lmittmann/tint v1.1.2
