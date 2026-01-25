@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"go.opentelemetry.io/contrib/exporters/autoexport"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel/attribute"
 	api "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/sdk/metric"
@@ -46,6 +47,13 @@ func NewAppMetrics(ctx context.Context) (m *AppMetrics, shutdownFn func(ctx cont
 	)
 	meter := mp.Meter(prefix)
 
+	// Runtime instrumentation for Go runtime metrics
+	err = runtime.Start(runtime.WithMeterProvider(mp))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to start runtime instrumentation: %w", err)
+	}
+
+	// Counter for number of authentications
 	m.auths, err = meter.Int64Counter(
 		prefix+"_auths",
 		api.WithDescription("The number of authentications"),

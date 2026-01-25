@@ -16,6 +16,7 @@ import (
 	"github.com/italypaleale/go-kit/tsnetserver"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	sloghttp "github.com/samber/slog-http"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/italypaleale/tsiam/pkg/config"
 	"github.com/italypaleale/tsiam/pkg/jwks"
@@ -104,6 +105,8 @@ func (s *Server) initAppServer() {
 		httpserver.MiddlewareMaxBodySize(1 << 10),
 		// Log requests
 		sloghttp.NewWithFilters(slog.Default(), filters...),
+		// Wrap with OpenTelemetry HTTP instrumentation for metrics and tracing
+		otelhttp.NewMiddleware("server"),
 	}
 
 	// Add middlewares

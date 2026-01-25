@@ -561,6 +561,71 @@ tokens:
 
 **Security Best Practice**: Keep `allowEmptyNodeCapability: false` and explicitly grant capabilities to each node or tag, for an extra layer of security.
 
+## Observability
+
+tsiam includes built-in support for observability through OpenTelemetry, providing logs and metrics to help you monitor and troubleshoot your workload identity service.
+
+### Logs
+
+tsiam emits structured logs with OpenTelemetry integration. Logs include contextual information such as trace IDs and span IDs for correlation with distributed traces.
+
+Configure log levels in your `config.yaml`:
+
+```yaml
+logs:
+  # Log level: debug, info, warn, error
+  level: info
+```
+
+To export logs via OpenTelemetry, simply set the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable. No additional configuration is required.
+
+### Metrics
+
+To export metrics via OpenTelemetry, set the OpenTelemetry collector endpoint using environment variables:
+
+```sh
+# OTLP endpoint for metrics and logs
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+# Service name for telemetry
+export OTEL_SERVICE_NAME=tsiam
+# Optional: Additional resource attributes
+export OTEL_RESOURCE_ATTRIBUTES=environment=production,region=us-east-1
+```
+
+### OpenTelemetry Configuration
+
+tsiam supports standard OpenTelemetry environment variables for configuration:
+
+| Variable | Description | Default |
+| ---- | ---- | ---- |
+| `OTEL_SDK_DISABLED` | Disable OpenTelemetry SDK entirely | `false` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint | -  |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | Protocol (`grpc` or `http/protobuf`) | `http/protobuf` |
+| `OTEL_LOGS_EXPORTER` | Logs exporter (`otlp`, `console`, `none`) | `otlp` |
+| `OTEL_METRICS_EXPORTER` | Metrics exporter (`otlp`, `prometheus`, `console`, `none`) | `otlp` |
+| `OTEL_EXPORTER_PROMETHEUS_HOST` | Host for Prometheus metrics endpoint | `localhost` |
+| `OTEL_EXPORTER_PROMETHEUS_PORT` | Port for Prometheus metrics endpoint | `9464` |
+| `OTEL_SERVICE_NAME` | Service name in telemetry | `tsiam` |
+| `OTEL_RESOURCE_ATTRIBUTES` | Additional resource attributes | - |
+
+For exposing metrics on a Prometheus-compatible endpoint, set `OTEL_METRICS_EXPORTER=prometheus` and `OTEL_EXPORTER_PROMETHEUS_PORT=<portnumber>` to expose a `/metrics` endpoint that Prometheus can scrape.
+
+For a complete list of OpenTelemetry environment variables, see the [OpenTelemetry SDK Configuration documentation](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/).
+
+### Example: Running with OpenTelemetry Collector
+
+```sh
+docker run -d \
+  --name tsiam \
+  -v /path/to/config.yaml:/etc/tsiam/config.yaml:ro \
+  -e OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
+  -e OTEL_SERVICE_NAME=tsiam \
+  -e OTEL_RESOURCE_ATTRIBUTES=environment=production \
+  ghcr.io/italypaleale/tsiam:v0
+```
+
+You can integrate with popular observability platforms like Grafana Cloud, Datadog, Honeycomb, or any OpenTelemetry-compatible backend.
+
 ## License
 
 This project is licensed under the MIT License.
