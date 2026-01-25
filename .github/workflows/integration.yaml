@@ -1,0 +1,178 @@
+name: Integration Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Configure these in repository variables (Settings > Secrets and variables > Actions > Variables)
+  # TS_OAUTH_CLIENT_ID: The Client ID from Tailscale admin console (Trust credentials > OIDC)
+  # TS_OAUTH_AUDIENCE: The Audience from Tailscale admin console (usually api.tailscale.com/<id>)
+  TS_OAUTH_CLIENT_ID: ${{ vars.TS_OAUTH_CLIENT_ID }}
+  TS_OAUTH_AUDIENCE: ${{ vars.TS_OAUTH_AUDIENCE }}
+
+jobs:
+  integration-test:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Get GitHub OIDC token
+        id: github_oidc
+        run: |
+          # Request OIDC token from GitHub Actions
+          OIDC_TOKEN=$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${TS_OAUTH_AUDIENCE}" \
+            | jq -r '.value')
+
+          if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
+            echo "Failed to get GitHub OIDC token"
+            exit 1
+          fi
+
+          echo "::add-mask::$OIDC_TOKEN"
+          echo "token=$OIDC_TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Exchange GitHub OIDC token for Tailscale access token
+        id: tailscale_token
+        run: |
+          # Exchange GitHub OIDC token for Tailscale access token
+          RESPONSE=$(curl -sS -X POST "https://api.tailscale.com/api/v2/oauth/token-exchange" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "client_id=${TS_OAUTH_CLIENT_ID}" \
+            -d "jwt=${{ steps.github_oidc.outputs.token }}")
+
+          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
+
+          if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" = "null" ]; then
+            echo "Failed to exchange token. Response: $RESPONSE"
+            exit 1
+          fi
+
+          echo "::add-mask::$ACCESS_TOKEN"
+          echo "token=$ACCESS_TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ steps.tailscale_token.outputs.token }}
+          tags: tag:ci-runner
+
+      - name: Generate auth key for tsiam
+        id: authkey
+        run: |
+          # Generate an ephemeral auth key for tsiam using the Tailscale API
+          AUTH_KEY=$(curl -sS -X POST "https://api.tailscale.com/api/v2/tailnet/-/keys" \
+            -H "Authorization: Bearer ${{ steps.tailscale_token.outputs.token }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "capabilities": {
+                "devices": {
+                  "create": {
+                    "reusable": false,
+                    "ephemeral": true,
+                    "preauthorized": true,
+                    "tags": ["tag:ci-tsiam"]
+                  }
+                }
+              },
+              "expirySeconds": 300
+            }' | jq -r '.key')
+
+          if [ -z "$AUTH_KEY" ] || [ "$AUTH_KEY" = "null" ]; then
+            echo "Failed to generate auth key"
+            exit 1
+          fi
+
+          echo "::add-mask::$AUTH_KEY"
+          echo "key=$AUTH_KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Create tsiam config
+        run: |
+          mkdir -p /tmp/tsiam-tsnet
+          cat > /tmp/tsiam-config.yaml << 'EOF'
+          tsnet:
+            hostname: tsiam-ci-${{ github.run_id }}
+            authKey: ${{ steps.authkey.outputs.key }}
+            stateDir: /tmp/tsiam-tsnet
+            ephemeral: true
+          logs:
+            level: debug
+            json: true
+          tokens:
+            lifetime: 5m
+            allowedAudiences:
+              - "https://test.example.com"
+            allowEmptyNodeCapability: true
+          signingKey:
+            storage: memory
+            algorithm: ES256
+          EOF
+
+      - name: Build tsiam
+        run: go build -o /tmp/tsiam ./cmd
+
+      - name: Start tsiam
+        run: |
+          TSIAM_CONFIG=/tmp/tsiam-config.yaml /tmp/tsiam &
+          echo "TSIAM_PID=$!" >> $GITHUB_ENV
+
+      - name: Wait for tsiam to be reachable
+        run: |
+          TSIAM_HOST="tsiam-ci-${{ github.run_id }}"
+
+          # First, wait for the node to appear in Tailscale
+          echo "Waiting for tsiam node to join Tailscale..."
+          for i in {1..60}; do
+            TSIAM_FQDN=$(tailscale status --json | jq -r ".Peer[] | select(.HostName==\"$TSIAM_HOST\") | .DNSName" | sed 's/\.$//')
+            if [ -n "$TSIAM_FQDN" ] && [ "$TSIAM_FQDN" != "null" ]; then
+              echo "Found tsiam node: $TSIAM_FQDN"
+              break
+            fi
+            echo "Waiting for tsiam node to appear... ($i/60)"
+            sleep 2
+          done
+
+          if [ -z "$TSIAM_FQDN" ] || [ "$TSIAM_FQDN" = "null" ]; then
+            echo "tsiam node did not appear in Tailscale"
+            exit 1
+          fi
+
+          echo "TSIAM_FQDN=$TSIAM_FQDN" >> $GITHUB_ENV
+
+          # Now wait for the /healthz endpoint to respond
+          echo "Waiting for tsiam /healthz endpoint..."
+          for i in {1..10}; do
+            if curl -sf --max-time 5 "https://$TSIAM_FQDN/healthz" >/dev/null 2>&1; then
+              echo "tsiam is healthy and reachable"
+              exit 0
+            fi
+            echo "Waiting for tsiam /healthz... ($i/10)"
+            sleep 2
+          done
+
+          echo "tsiam /healthz endpoint did not become available"
+          exit 1
+
+      - name: Run integration tests
+        run: go test -v -tags integration ./tests/integration/...
+        env:
+          TSIAM_URL: https://${{ env.TSIAM_FQDN }}
+          TEST_AUDIENCE: https://test.example.com
+
+      - name: Stop tsiam
+        if: always()
+        run: kill $TSIAM_PID 2>/dev/null || true

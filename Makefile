@@ -2,6 +2,10 @@
 test:
 	go test -tags unit ./...
 
+.PHONY: test-integration
+test-integration:
+	go test -v -tags integration ./tests/integration/...
+
 .PHONY: test-race
 test-race:
 	CGO_ENABLED=1 go test -race -tags unit ./...
