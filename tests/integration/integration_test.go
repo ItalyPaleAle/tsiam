@@ -20,11 +20,6 @@ import (
 
 const requestTimeout = 15 * time.Second
 
-// contextWithTimeout returns a context with a timeout derived from the test context.
-func contextWithTimeout(t *testing.T) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(t.Context(), requestTimeout)
-}
-
 var (
 	tsiamURL     string
 	testAudience string
@@ -44,7 +39,6 @@ func TestMain(m *testing.M) {
 
 	// Create HTTP client that trusts Tailscale certificates
 	httpClient = &http.Client{
-		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
 				MinVersion: tls.VersionTLS12,
@@ -74,9 +68,8 @@ type apiError struct {
 
 func TestTokenEndpoint(t *testing.T) {
 	t.Run("successful token request", func(t *testing.T) {
-		ctx, cancel := contextWithTimeout(t)
+		ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
 		defer cancel()
-
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, tsiamURL+"/token?audience="+testAudience, nil)
 		require.NoError(t, err)
 		req.Header.Set("X-Tsiam", "1")
@@ -139,7 +132,7 @@ func TestTokenEndpoint(t *testing.T) {
 	})
 
 	t.Run("resource parameter works as alias for audience", func(t *testing.T) {
-		ctx, cancel := contextWithTimeout(t)
+		ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
 		defer cancel()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, tsiamURL+"/token?resource="+testAudience, nil)
@@ -155,10 +148,9 @@ func TestTokenEndpoint(t *testing.T) {
 }
 
 func TestTokenSignatureVerification(t *testing.T) {
-	ctx, cancel := contextWithTimeout(t)
-	defer cancel()
-
 	// First fetch the JWKS
+	ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
+	defer cancel()
 	jwksReq, err := http.NewRequestWithContext(ctx, http.MethodGet, tsiamURL+"/.well-known/jwks.json", nil)
 	require.NoError(t, err)
 
@@ -176,6 +168,8 @@ func TestTokenSignatureVerification(t *testing.T) {
 	require.Positive(t, keySet.Len(), "JWKS should contain at least one key")
 
 	// Now request a token
+	ctx, cancel = context.WithTimeout(t.Context(), requestTimeout)
+	defer cancel()
 	tokenReq, err := http.NewRequestWithContext(ctx, http.MethodPost, tsiamURL+"/token?audience="+testAudience, nil)
 	require.NoError(t, err)
 	tokenReq.Header.Set("X-Tsiam", "1")
@@ -203,7 +197,7 @@ func TestTokenSignatureVerification(t *testing.T) {
 
 func TestOIDCEndpoints(t *testing.T) {
 	t.Run("healthz endpoint", func(t *testing.T) {
-		ctx, cancel := contextWithTimeout(t)
+		ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
 		defer cancel()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, tsiamURL+"/healthz", nil)
@@ -217,7 +211,7 @@ func TestOIDCEndpoints(t *testing.T) {
 	})
 
 	t.Run("JWKS endpoint", func(t *testing.T) {
-		ctx, cancel := contextWithTimeout(t)
+		ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
 		defer cancel()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, tsiamURL+"/.well-known/jwks.json", nil)
@@ -240,7 +234,7 @@ func TestOIDCEndpoints(t *testing.T) {
 	})
 
 	t.Run("OpenID Configuration endpoint", func(t *testing.T) {
-		ctx, cancel := contextWithTimeout(t)
+		ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
 		defer cancel()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, tsiamURL+"/.well-known/openid-configuration", nil)
@@ -272,7 +266,7 @@ func TestOIDCEndpoints(t *testing.T) {
 
 func TestTokenEndpointErrors(t *testing.T) {
 	t.Run("missing X-Tsiam header returns 403", func(t *testing.T) {
-		ctx, cancel := contextWithTimeout(t)
+		ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
 		defer cancel()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, tsiamURL+"/token?audience="+testAudience, nil)
@@ -292,7 +286,7 @@ func TestTokenEndpointErrors(t *testing.T) {
 	})
 
 	t.Run("missing audience returns 400", func(t *testing.T) {
-		ctx, cancel := contextWithTimeout(t)
+		ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
 		defer cancel()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, tsiamURL+"/token", nil)
@@ -312,7 +306,7 @@ func TestTokenEndpointErrors(t *testing.T) {
 	})
 
 	t.Run("disallowed audience returns 403", func(t *testing.T) {
-		ctx, cancel := contextWithTimeout(t)
+		ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
 		defer cancel()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, tsiamURL+"/token?audience=https://not-allowed.example.com", nil)
@@ -332,7 +326,7 @@ func TestTokenEndpointErrors(t *testing.T) {
 	})
 
 	t.Run("conflicting resource and audience returns 400", func(t *testing.T) {
-		ctx, cancel := contextWithTimeout(t)
+		ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
 		defer cancel()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, tsiamURL+"/token?resource=https://one.example.com&audience=https://two.example.com", nil)
