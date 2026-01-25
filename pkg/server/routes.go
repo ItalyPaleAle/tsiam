@@ -100,6 +100,9 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		slog.Int64("expiresIn", token.ExpiresIn),
 	)
 
+	// Record the metric
+	s.appMetrics.RecordAuth(whois.Name, audience)
+
 	//nolint:tagliatelle
 	type postTokenResponse struct {
 		AccessToken string `json:"access_token"`

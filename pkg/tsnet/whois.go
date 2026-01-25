@@ -31,11 +31,12 @@ func IsAudiencePermittedForCaller(whois *tsnetserver.TailscaleWhoIs, audience st
 	}
 
 	// Caller has the capability, check if the audience is in their allowed list
+	var err error
 	for _, capValue := range capValues {
 		// capValue is a RawMessage (JSON-encoded object)
 		// Try to unmarshal it as a TsiamCapability object
 		var tsiamCap TsiamCapability
-		err := json.Unmarshal([]byte(capValue), &tsiamCap)
+		err = json.Unmarshal([]byte(capValue), &tsiamCap)
 		if err == nil {
 			// Check if the audience is in the allowedAudiences list
 			if slices.Contains(tsiamCap.AllowedAudiences, audience) {
