@@ -29,8 +29,16 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
-      - name: Get GitHub OIDC token
-        id: github_oidc
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ env.TS_OAUTH_AUDIENCE }}
+          tags: tag:ci-runner
+          version: latest
+
+      - name: Exchange GitHub OIDC token for Tailscale access token
+        id: tailscale_token
         run: |
           # Request OIDC token from GitHub Actions
           OIDC_TOKEN=$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
@@ -43,16 +51,12 @@ jobs:
           fi
 
           echo "::add-mask::$OIDC_TOKEN"
-          echo "token=$OIDC_TOKEN" >> "$GITHUB_OUTPUT"
 
-      - name: Exchange GitHub OIDC token for Tailscale access token
-        id: tailscale_token
-        run: |
           # Exchange GitHub OIDC token for Tailscale access token
           RESPONSE=$(curl -sS -X POST "https://api.tailscale.com/api/v2/oauth/token-exchange" \
             -H "Content-Type: application/x-www-form-urlencoded" \
             -d "client_id=${TS_OAUTH_CLIENT_ID}" \
-            -d "jwt=${{ steps.github_oidc.outputs.token }}")
+            -d "jwt=${OIDC_TOKEN}")
 
           ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
 
@@ -63,13 +67,6 @@ jobs:
 
           echo "::add-mask::$ACCESS_TOKEN"
           echo "token=$ACCESS_TOKEN" >> "$GITHUB_OUTPUT"
-
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@v4
-        with:
-          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ steps.tailscale_token.outputs.token }}
-          tags: tag:ci-runner
 
       - name: Generate auth key for tsiam
         id: authkey
