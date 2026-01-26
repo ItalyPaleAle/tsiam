@@ -39,8 +39,7 @@ Configure these variables in your repository settings (Settings > Secrets and va
 6. Select the required scope:
    - `Auth Keys: Write` (required to create auth keys for tsiam)
 7. Add tags that the credential can use:
-   - `tag:ci-runner`
-   - `tag:ci-tsiam`
+   - `tag:tsiam-ci`
 8. Save the credential
 9. Copy the **Client ID** and **Audience** values to your GitHub repository variables
 
@@ -51,14 +50,13 @@ Add the following to your Tailscale ACL policy (Access Controls > Edit ACL):
 ```json
 {
   "tagOwners": {
-    "tag:ci-runner": ["autogroup:admin"],
-    "tag:ci-tsiam": ["autogroup:admin"]
+    "tag:tsiam-ci": ["autogroup:admin"],
   },
   "acls": [
     {
       "action": "accept",
-      "src": ["tag:ci-runner"],
-      "dst": ["tag:ci-tsiam:443"]
+      "src": ["tag:tsiam-ci"],
+      "dst": ["tag:tsiam-ci:443"]
     }
   ]
 }
@@ -118,8 +116,8 @@ The test audience must be in tsiam's `allowedAudiences` configuration. For CI, t
 ### OIDC token exchange errors in CI
 
 - Verify the trust credential is configured for the correct repository and branch pattern
-- Ensure the credential has both `Devices: Write` and `Auth Keys: Write` scopes
-- Check that the tags `tag:ci-runner` and `tag:ci-tsiam` are added to the credential
+- Ensure the credential has the `Auth Keys: Write` scope
+- Check that the tag `tag:tsiam-ci` is added to the credential
 - Verify `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_AUDIENCE` repository variables are set correctly
 
 ### Node not appearing in Tailscale

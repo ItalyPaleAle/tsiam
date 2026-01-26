@@ -24,11 +24,6 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: 'go.mod'
-
       - name: Exchange GitHub OIDC token for Tailscale access token
         id: tailscale_token
         run: |
@@ -74,7 +69,7 @@ jobs:
                     "reusable": false,
                     "ephemeral": true,
                     "preauthorized": true,
-                    "tags": ["tag:ci-tsiam"]
+                    "tags": ["tag:tsiam-ci"]
                   }
                 }
               },
@@ -116,8 +111,13 @@ jobs:
         with:
           oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
           audience: ${{ env.TS_OAUTH_AUDIENCE }}
-          tags: tag:ci-runner
+          tags: tag:tsiam-ci
           version: latest
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
 
       - name: Build tsiam
         run: go build -o /tmp/tsiam ./cmd
