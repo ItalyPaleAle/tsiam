@@ -62,7 +62,7 @@ type tokenResponse struct {
 
 // apiError represents an error response from the API
 type apiError struct {
-	Error   string `json:"error"`
+	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
@@ -282,7 +282,7 @@ func TestTokenEndpointErrors(t *testing.T) {
 		var errResp apiError
 		err = json.NewDecoder(resp.Body).Decode(&errResp)
 		require.NoError(t, err)
-		assert.Equal(t, "no_browser", errResp.Error)
+		assert.Equal(t, "no_browser", errResp.Code)
 	})
 
 	t.Run("missing audience returns 400", func(t *testing.T) {
@@ -302,7 +302,7 @@ func TestTokenEndpointErrors(t *testing.T) {
 		var errResp apiError
 		err = json.NewDecoder(resp.Body).Decode(&errResp)
 		require.NoError(t, err)
-		assert.Equal(t, "missing_audience", errResp.Error)
+		assert.Equal(t, "missing_audience", errResp.Code)
 	})
 
 	t.Run("disallowed audience returns 403", func(t *testing.T) {
@@ -322,7 +322,7 @@ func TestTokenEndpointErrors(t *testing.T) {
 		var errResp apiError
 		err = json.NewDecoder(resp.Body).Decode(&errResp)
 		require.NoError(t, err)
-		assert.Equal(t, "audience_not_allowed", errResp.Error)
+		assert.Equal(t, "audience_not_allowed", errResp.Code)
 	})
 
 	t.Run("conflicting resource and audience returns 400", func(t *testing.T) {
@@ -342,6 +342,6 @@ func TestTokenEndpointErrors(t *testing.T) {
 		var errResp apiError
 		err = json.NewDecoder(resp.Body).Decode(&errResp)
 		require.NoError(t, err)
-		assert.Equal(t, "audience_conflict", errResp.Error)
+		assert.Equal(t, "audience_conflict", errResp.Code)
 	})
 }
