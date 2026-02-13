@@ -155,7 +155,7 @@ type ConfigStorageAzureKeyVaultKeys struct {
 	ClientSecret string `yaml:"clientSecret,omitempty"`
 }
 
-// ConfigAzureKeyVault holds configuration for the Azure Key Vault Secrets ("AzureKeyVaultSecrets") storage
+// ConfigStorageAzureKeyVaultSecrets holds configuration for the Azure Key Vault Secrets ("AzureKeyVaultSecrets") storage
 type ConfigStorageAzureKeyVaultSecrets struct {
 	// VaultURL is the URL of the Azure Key Vault (e.g., https://myvault.vault.azure.net/).
 	// +required
@@ -210,7 +210,7 @@ func (c *Config) GetInstanceID() string {
 	return c.internal.instanceID
 }
 
-// Validates the configuration and performs some sanitization
+// Validate the configuration and performs some sanitization
 func (c *Config) Validate(logger *slog.Logger) error {
 	// Token configuration
 	c.Tokens.Lifetime = c.Tokens.Lifetime.Truncate(time.Second)

@@ -8,7 +8,7 @@ import (
 	"github.com/jinzhu/copier"
 )
 
-// Updates the configuration in the global config object for the test
+// SetTestConfig updates the configuration in the global config object for the test
 // Returns a function that should be called with "defer" to restore the previous configuration
 func SetTestConfig(updater func(c *Config)) func() {
 	// Save the previous config

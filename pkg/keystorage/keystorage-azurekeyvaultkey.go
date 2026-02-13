@@ -12,8 +12,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
 	"github.com/lestrrat-go/jwx/v3/jwk"
-
-	"github.com/italypaleale/tsiam/pkg/utils"
 )
 
 // AzureKeyVaultKeyClient is an interface for the Azure Key Vault Keys client
@@ -116,7 +114,7 @@ func (a *AzureKeyVaultKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 	// Unwrap the key using Azure Key Vault
 	params := azkeys.KeyOperationParameters{
 		// Use RSA-OAEP-256 for key wrapping
-		Algorithm: utils.Ptr(azkeys.EncryptionAlgorithmRSAOAEP256),
+		Algorithm: new(azkeys.EncryptionAlgorithmRSAOAEP256),
 		Value:     wrappedData,
 	}
 
@@ -149,7 +147,7 @@ func (a *AzureKeyVaultKeyStorage) Store(ctx context.Context, key jwk.Key) error 
 	// Wrap the key using Azure Key Vault
 	params := azkeys.KeyOperationParameters{
 		// Use RSA-OAEP-256 for key wrapping
-		Algorithm: utils.Ptr(azkeys.EncryptionAlgorithmRSAOAEP256),
+		Algorithm: new(azkeys.EncryptionAlgorithmRSAOAEP256),
 		Value:     data,
 	}
 

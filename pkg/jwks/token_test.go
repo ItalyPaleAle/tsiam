@@ -224,7 +224,7 @@ func TestNewToken(t *testing.T) {
 		require.NoError(t, err)
 
 		// Extract the tsiam claim
-		var tsiamMap map[string]interface{}
+		var tsiamMap map[string]any
 		err = parsedToken.Get("italypaleale.me/tsiam", &tsiamMap)
 		require.NoError(t, err, "tsiam claim should be present")
 
@@ -235,7 +235,7 @@ func TestNewToken(t *testing.T) {
 		assert.Equal(t, "fd7a:115c:a1e0::1", tsiamMap["ip6"])
 		assert.Equal(t, "user@example.com", tsiamMap["userLoginName"])
 
-		tags, ok := tsiamMap["tags"].([]interface{})
+		tags, ok := tsiamMap["tags"].([]any)
 		require.True(t, ok, "tags should be an array")
 		assert.Len(t, tags, 2)
 		assert.Equal(t, "tag:webserver", tags[0])
