@@ -32,7 +32,7 @@ docker run -d \
   -v /path/to/config.yaml:/etc/tsiam/config.yaml:ro \
   -v /path/to/tsnet-state:/etc/tsiam/tsnet \
   -v /path/to/tsiam-state:/var/lib/tsiam \
-  ghcr.io/italypaleale/tsiam:v0
+  ghcr.io/italypaleale/tsiam:0
 ```
 
 ### Pre-built Binaries
@@ -621,7 +621,7 @@ docker run -d \
   -e OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
   -e OTEL_SERVICE_NAME=tsiam \
   -e OTEL_RESOURCE_ATTRIBUTES=environment=production \
-  ghcr.io/italypaleale/tsiam:v0
+  ghcr.io/italypaleale/tsiam:0
 ```
 
 You can integrate with popular observability platforms like Grafana Cloud, Datadog, Honeycomb, or any OpenTelemetry-compatible backend.
