@@ -2,6 +2,8 @@ module github.com/italypaleale/tsiam
 
 go 1.26
 
+tool github.com/italypaleale/go-kit/tools/gen-config
+
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0-beta.3

@@ -16,7 +16,7 @@ lint:
 
 .PHONY: gen-config
 gen-config:
-	go run ./tools/gen-config
+	go tool gen-config
 
 # Ensure gen-config ran
 .PHONY: check-config-diff
