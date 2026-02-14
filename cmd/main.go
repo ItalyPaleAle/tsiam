@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	configkit "github.com/italypaleale/go-kit/config"
+	"github.com/italypaleale/go-kit/observability"
 	"github.com/italypaleale/go-kit/servicerunner"
 	"github.com/italypaleale/go-kit/signals"
 	slogkit "github.com/italypaleale/go-kit/slog"
@@ -24,9 +26,13 @@ func main() {
 		With(slog.String("version", buildinfo.AppVersion))
 
 	// Load config
-	err := config.LoadConfig()
+	cfg := config.Get()
+	err := configkit.LoadConfig(cfg, configkit.LoadConfigOpts{
+		EnvVar:  "TSIAM_CONFIG",
+		DirName: "tsiam",
+	})
 	if err != nil {
-		var ce *config.ConfigError
+		var ce *configkit.ConfigError
 		if errors.As(err, &ce) {
 			ce.LogFatal(initLogger)
 		} else {
@@ -34,52 +40,69 @@ func main() {
 			return
 		}
 	}
-	cfg := config.Get()
 
 	// List of services to run
 	services := make([]servicerunner.Service, 0, 3)
 
-	// Shutdown functions
-	shutdownFns := make([]servicerunner.Service, 0, 4)
+	shutdowns := &shutdownManager{
+		fns: make([]servicerunner.Service, 0, 4),
+	}
 
 	// Get the logger and set it in the context
-	log, loggerShutdownFn, err := config.GetLogger(context.Background())
+	log, loggerShutdownFn, err := observability.InitLogs(context.Background(), observability.InitLogsOpts{
+		Config:     cfg,
+		Level:      cfg.Logs.Level,
+		JSON:       cfg.Logs.JSON,
+		AppName:    buildinfo.AppName,
+		AppVersion: buildinfo.AppVersion,
+	})
 	if err != nil {
 		slogkit.FatalError(initLogger, "Failed to create logger", err)
 		return
 	}
 	slog.SetDefault(log)
-	if loggerShutdownFn != nil {
-		shutdownFns = append(shutdownFns, loggerShutdownFn)
-	}
+	shutdowns.Add(loggerShutdownFn)
 
 	// Validate the configuration
 	err = cfg.Validate(log)
 	if err != nil {
+		shutdowns.Run(log)
 		slogkit.FatalError(log, "Invalid configuration", err)
 		return
 	}
 
 	log.Info("Starting tsiam", slog.String("build", buildinfo.BuildDescription))
 
-	// Get a context that is canceled when the application receives a termination signal
-	// We store the logger in the context too
+	// Get a context that is canceled when the application receives a termination signal.
 	ctx := signals.SignalContext(context.Background())
 
 	// Init appMetrics
 	appMetrics, metricsShutdownFn, err := appmetrics.NewAppMetrics(ctx)
 	if err != nil {
+		shutdowns.Run(log)
 		slogkit.FatalError(log, "Failed to init metrics", err)
 		return
 	}
-	if metricsShutdownFn != nil {
-		shutdownFns = append(shutdownFns, metricsShutdownFn)
+	shutdowns.Add(metricsShutdownFn)
+
+	// Init tracing
+	_, tracerShutdownFn, err := observability.InitTraces(ctx, observability.InitTracesOpts{
+		Config:  cfg,
+		AppName: buildinfo.AppName,
+	})
+	if err != nil {
+		shutdowns.Run(log)
+		slogkit.FatalError(log, "Failed to init tracing", err)
+		return
 	}
+	shutdowns.Add(tracerShutdownFn)
 
 	// Get the signing signingKey
 	signingKey, err := getKey(ctx)
 	if err != nil {
+		shutdowns.Run(log)
 		slogkit.FatalError(log, "Failed to get signing key", err)
+		return
 	}
 
 	// Init tsnetServer
@@ -90,10 +113,11 @@ func main() {
 		Ephemeral: cfg.TSNet.Ephemeral,
 	})
 	if err != nil {
+		shutdowns.Run(log)
 		slogkit.FatalError(log, "Failed to init TSNet server", err)
 		return
 	}
-	shutdownFns = append(shutdownFns, ts.Close)
+	shutdowns.Add(ts.Close)
 
 	// Create server
 	log.Info("Initializing server")
@@ -103,6 +127,7 @@ func main() {
 		SigningKey:  signingKey,
 	})
 	if err != nil {
+		shutdowns.Run(log)
 		slogkit.FatalError(log, "Failed to init API server", err)
 		return
 	}
@@ -114,16 +139,30 @@ func main() {
 		NewServiceRunner(services...).
 		Run(ctx)
 	if err != nil {
+		shutdowns.Run(log)
 		slogkit.FatalError(log, "Failed to run service", err)
 		return
 	}
 
-	// Invoke all shutdown functions
-	// We give these a timeout of 5s
+	shutdowns.Run(log)
+}
+
+type shutdownManager struct {
+	fns []servicerunner.Service
+}
+
+func (s *shutdownManager) Add(fn servicerunner.Service) {
+	if fn == nil {
+		return
+	}
+	s.fns = append(s.fns, fn)
+}
+
+func (s *shutdownManager) Run(log *slog.Logger) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
-	err = servicerunner.
-		NewServiceRunner(shutdownFns...).
+	err := servicerunner.
+		NewServiceRunner(s.fns...).
 		Run(shutdownCtx)
 	if err != nil {
 		log.Error("Error shutting down services", slog.Any("error", err))

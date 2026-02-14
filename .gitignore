@@ -1,5 +1,7 @@
-/config.yaml
 /scratch
+/config.yaml
+/config.*.yaml
+!/config.sample.yaml
 
 # Created by https://www.toptal.com/developers/gitignore/api/linux,macos,windows,visualstudiocode,go
 # Edit at https://www.toptal.com/developers/gitignore?templates=linux,macos,windows,visualstudiocode,go

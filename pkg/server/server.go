@@ -12,7 +12,6 @@ import (
 	"time"
 
 	httpserver "github.com/italypaleale/go-kit/httpserver"
-	slogkit "github.com/italypaleale/go-kit/slog"
 	"github.com/italypaleale/go-kit/tsnetserver"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	sloghttp "github.com/samber/slog-http"
@@ -23,7 +22,11 @@ import (
 	"github.com/italypaleale/tsiam/pkg/metrics"
 )
 
-// Server is the server based on Gin
+// Max size for request bodies.
+// 1KB
+const maxBodySize = 1 << 10
+
+// Server is the HTTP API server.
 type Server struct {
 	appSrv  *http.Server
 	handler http.Handler
@@ -102,7 +105,7 @@ func (s *Server) initAppServer() {
 		// Recover from panics
 		sloghttp.Recovery,
 		// Limit request body to 1KB
-		httpserver.MiddlewareMaxBodySize(1 << 10),
+		httpserver.MiddlewareMaxBodySize(maxBodySize),
 		// Log requests
 		sloghttp.NewWithFilters(slog.Default(), filters...),
 		// Wrap with OpenTelemetry HTTP instrumentation for metrics and tracing
@@ -123,12 +126,13 @@ func (s *Server) Run(ctx context.Context) error {
 	defer s.wg.Wait()
 
 	// App server
-	err := s.startAppServer(ctx)
+	s.wg.Add(1)
+	appSrvErrCh := make(chan error, 1)
+	err := s.startAppServer(ctx, appSrvErrCh)
 	if err != nil {
+		s.wg.Done()
 		return fmt.Errorf("failed to start app server: %w", err)
 	}
-
-	s.wg.Add(1)
 	defer func() { //nolint:contextcheck
 		// Handle graceful shutdown
 		defer s.wg.Done()
@@ -144,14 +148,18 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 	}()
 
-	// Block until the context is canceled
-	<-ctx.Done()
+	// Block until the context is canceled or the app server exits unexpectedly.
+	select {
+	case <-ctx.Done():
+	case err = <-appSrvErrCh:
+		return fmt.Errorf("app server failed: %w", err)
+	}
 
 	// Servers are stopped with deferred calls
 	return nil
 }
 
-func (s *Server) startAppServer(ctx context.Context) (err error) {
+func (s *Server) startAppServer(ctx context.Context, appSrvErrCh chan<- error) (err error) {
 	cfg := config.Get()
 
 	// Create the HTTP server
@@ -201,7 +209,10 @@ func (s *Server) startAppServer(ctx context.Context) (err error) {
 		// Next call blocks until the server is shut down
 		srvErr := s.appSrv.Serve(s.tsListener)
 		if !errors.Is(srvErr, http.ErrServerClosed) {
-			slogkit.FatalError(slog.Default(), "Error starting app server", srvErr)
+			select {
+			case appSrvErrCh <- srvErr:
+			default:
+			}
 		}
 	}()
 
