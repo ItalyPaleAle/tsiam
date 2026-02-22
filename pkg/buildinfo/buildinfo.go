@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	"github.com/italypaleale/tsiam/pkg/utils"
+	"github.com/italypaleale/go-kit/utils"
 )
 
 const AppNamespace = "italypaleale.me/tsiam"

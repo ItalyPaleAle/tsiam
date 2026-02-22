@@ -2,7 +2,7 @@ package config
 
 import (
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
 
 	"github.com/italypaleale/tsiam/pkg/buildinfo"
 )
