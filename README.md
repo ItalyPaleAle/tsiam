@@ -97,6 +97,25 @@ logs:
   level: info
 ```
 
+### Authentication
+
+When first starting tsiam up, you can authenticate the node in a few different ways:
+
+1. **Auth key:** Use a Tailscale auth key from the admin portal (typically starts with `tskey-auth-...`).
+   - Set it in the config file as `tsnet.authKey`
+   - Or set it as the `TS_AUTHKEY` environment variable (alias `TS_AUTH_KEY`)
+2. **OAuth2:** You can use a Tailscale OAuth client to let tsiam generate an auth key automatically at startup.
+   - Create a Tailscale OAuth client in the Tailscale admin portal
+   - Set `TS_CLIENT_SECRET` to the OAuth client secret (you do not need the client ID)
+3. **Workload identity federation (OIDC):** tsiam can also generate an auth key using workload identity federation.
+   - Set `TS_CLIENT_ID`
+   - And set exactly one of:
+     - `TS_ID_TOKEN` (provide an ID token directly), or
+     - `TS_AUDIENCE` (let tsnet request an ID token from a supported provider)
+   - Note: Do not set both `TS_ID_TOKEN` and `TS_AUDIENCE` at the same time.
+
+Note: authentication credentials are only used on first startup or if the node key has expired.
+
 ## Quick Start
 
 1. Create a configuration file (see above)
