@@ -13,9 +13,41 @@ env:
   TS_OAUTH_AUDIENCE: ${{ vars.TS_OAUTH_AUDIENCE }}
 
 jobs:
-  integration-test:
-    name: Integration Test
+  build:
+    name: Build tsiam
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Build tsiam
+        run: go build -o /tmp/tsiam ./cmd
+
+      - name: Upload tsiam binary
+        uses: actions/upload-artifact@v6
+        with:
+          name: tsiam-linux-amd64
+          path: /tmp/tsiam
+          if-no-files-found: error
+
+  integration-test:
+    name: Integration Test (${{ matrix.auth_mode }})
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        auth_mode:
+          - authkey
+          - federation
     permissions:
       contents: read
       id-token: write
@@ -25,6 +57,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Exchange GitHub OIDC token for Tailscale access token
+        if: matrix.auth_mode == 'authkey'
         id: tailscale_token
         run: |
           # Request OIDC token from GitHub Actions
@@ -56,6 +89,7 @@ jobs:
           echo "token=$ACCESS_TOKEN" >> "$GITHUB_OUTPUT"
 
       - name: Generate auth key for tsiam
+        if: matrix.auth_mode == 'authkey'
         id: authkey
         run: |
           # Generate an ephemeral auth key for tsiam using the Tailscale API
@@ -86,13 +120,17 @@ jobs:
 
       - name: Create tsiam config
         run: |
-          mkdir -p /tmp/tsiam-tsnet
-          cat > /tmp/tsiam-config.yaml << 'EOF'
+          mkdir -p /tmp/tsiam-tsnet-${{ matrix.auth_mode }}
+
+          if [ "${{ matrix.auth_mode }}" = "authkey" ]; then
+            cat > /tmp/tsiam-config.yaml << 'EOF'
           tsnet:
-            hostname: tsiam-ci-${{ github.run_id }}
+            hostname: tsiam-ci-${{ github.run_id }}-${{ matrix.auth_mode }}
             authKey: ${{ steps.authkey.outputs.key }}
-            stateDir: /tmp/tsiam-tsnet
+            stateDir: /tmp/tsiam-tsnet-${{ matrix.auth_mode }}
             ephemeral: true
+            advertiseTags:
+              - tag:tsiam-ci
           logs:
             level: debug
             json: true
@@ -105,6 +143,27 @@ jobs:
             storage: memory
             algorithm: ES256
           EOF
+          else
+            cat > /tmp/tsiam-config.yaml << 'EOF'
+          tsnet:
+            hostname: tsiam-ci-${{ github.run_id }}-${{ matrix.auth_mode }}
+            stateDir: /tmp/tsiam-tsnet-${{ matrix.auth_mode }}
+            ephemeral: true
+            advertiseTags:
+              - tag:tsiam-ci
+          logs:
+            level: debug
+            json: true
+          tokens:
+            lifetime: 5m
+            allowedAudiences:
+              - "https://test.example.com"
+            allowEmptyNodeCapability: true
+          signingKey:
+            storage: memory
+            algorithm: ES256
+          EOF
+          fi
 
       - name: Connect runner to Tailscale
         uses: tailscale/github-action@v4
@@ -119,17 +178,28 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
-      - name: Build tsiam
-        run: go build -o /tmp/tsiam ./cmd
+      - name: Download tsiam binary
+        uses: actions/download-artifact@v7
+        with:
+          name: tsiam-linux-amd64
+          path: /tmp
 
       - name: Start tsiam
         run: |
+          if [ "${{ matrix.auth_mode }}" = "federation" ]; then
+            # Direct federation path in tsnet requires client ID + audience (or ID token),
+            # and tags. preauthorized=true avoids a manual machine-approval step in CI.
+            export TS_CLIENT_ID="${TS_OAUTH_CLIENT_ID}?preauthorized=true&ephemeral=true"
+            export TS_AUDIENCE="${TS_OAUTH_AUDIENCE}"
+          fi
+
+          chmod +x /tmp/tsiam
           TSIAM_CONFIG=/tmp/tsiam-config.yaml /tmp/tsiam &
           echo "TSIAM_PID=$!" >> $GITHUB_ENV
 
       - name: Wait for tsiam to be reachable
         run: |
-          TSIAM_HOST="tsiam-ci-${{ github.run_id }}"
+          TSIAM_HOST="tsiam-ci-${{ github.run_id }}-${{ matrix.auth_mode }}"
 
           # First, wait for the node to appear in Tailscale
           echo "Waiting for tsiam node to join Tailscale..."

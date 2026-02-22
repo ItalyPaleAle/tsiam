@@ -107,10 +107,11 @@ func main() {
 
 	// Init tsnetServer
 	ts, err := tsnetserver.NewTSNetServer(ctx, tsnetserver.NewTSNetServerOpts{
-		Hostname:  cfg.TSNet.Hostname,
-		AuthKey:   cfg.TSNet.AuthKey,
-		StateDir:  cfg.GetTSNetStateDir(),
-		Ephemeral: cfg.TSNet.Ephemeral,
+		Hostname:      cfg.TSNet.Hostname,
+		AuthKey:       cfg.TSNet.AuthKey,
+		StateDir:      cfg.GetTSNetStateDir(),
+		Ephemeral:     cfg.TSNet.Ephemeral,
+		AdvertiseTags: cfg.TSNet.AdvertiseTags,
 	})
 	if err != nil {
 		shutdowns.Run(log)

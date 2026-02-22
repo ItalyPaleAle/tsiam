@@ -146,6 +146,8 @@ github.com/italypaleale/go-kit v0.0.0-20260216203933-c7019c99fc77 h1:YHMZuoMZXbe
 github.com/italypaleale/go-kit v0.0.0-20260216203933-c7019c99fc77/go.mod h1:kEJNodWf0AVG+mNz1FHbkzywVE1F73Gct8WqVF9Tres=
 github.com/italypaleale/go-kit v0.0.0-20260222221201-aa314a19927c h1:j9Pk7BsfjPnFt8A9E/zRhxskUqschnw4O35FQCAvFVo=
 github.com/italypaleale/go-kit v0.0.0-20260222221201-aa314a19927c/go.mod h1:kEJNodWf0AVG+mNz1FHbkzywVE1F73Gct8WqVF9Tres=
+github.com/italypaleale/go-kit v0.0.0-20260222225720-3e03a8a3f5f3 h1:QsBgSgP1Ner5MAO6elz8wPZFIUXGwme7LaRyVI/YPJM=
+github.com/italypaleale/go-kit v0.0.0-20260222225720-3e03a8a3f5f3/go.mod h1:kEJNodWf0AVG+mNz1FHbkzywVE1F73Gct8WqVF9Tres=
 github.com/jellydator/ttlcache/v3 v3.1.0 h1:0gPFG0IHHP6xyUyXq+JaD8fwkDCqgqwohXNJBcYE71g=
 github.com/jellydator/ttlcache/v3 v3.1.0/go.mod h1:hi7MGFdMAwZna5n2tuvh63DvFLzVKySzCVW6+0gA2n4=
 github.com/jinzhu/copier v0.4.0 h1:w3ciUoD19shMCRargcpm0cm91ytaBhDvuRpz1ODO/U8=

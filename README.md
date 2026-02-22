@@ -74,6 +74,8 @@ tsnet:
   hostname: tsiam
   # Optional: Auth key for automatic authentication with Tailscale (used on first startup only)
   #authKey: tskey-auth-xxx
+  # Optional: Advertise tags for ACLs (often needed for OAuth2 / federation-based node auth)
+  #advertiseTags: ["tag:tsiam"]
   # Enable Tailscale Funnel for public OIDC endpoints
   funnel: false
 
@@ -107,11 +109,13 @@ When first starting tsiam up, you can authenticate the node in a few different w
 2. **OAuth2:** You can use a Tailscale OAuth client to let tsiam generate an auth key automatically at startup.
    - Create a Tailscale OAuth client in the Tailscale admin portal
    - Set `TS_CLIENT_SECRET` to the OAuth client secret (you do not need the client ID)
+   - Set `tsnet.advertiseTags` in the config (for example `["tag:tsiam"]`); tags are typically required for OAuth-based node registration
 3. **Workload identity federation (OIDC):** tsiam can also generate an auth key using workload identity federation.
    - Set `TS_CLIENT_ID`
    - And set exactly one of:
      - `TS_ID_TOKEN` (provide an ID token directly), or
      - `TS_AUDIENCE` (let tsnet request an ID token from a supported provider)
+   - Set `tsnet.advertiseTags` in the config (for example `["tag:tsiam"]`); tags are typically required for federation-based node registration
    - Note: Do not set both `TS_ID_TOKEN` and `TS_AUDIENCE` at the same time.
 
 Note: authentication credentials are only used on first startup or if the node key has expired.

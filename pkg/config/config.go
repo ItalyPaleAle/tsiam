@@ -87,6 +87,11 @@ type ConfigTSNet struct {
 	// +default false
 	Ephemeral bool `yaml:"ephemeral"`
 
+	// Tags that should be applied to this node in the tailnet, for purposes of ACL enforcement.
+	// These can be referenced from the ACL policy document.
+	// Tags are generally required when using OAuth2 or workload identity federation to authenticate the node.
+	AdvertiseTags []string `yaml:"advertiseTags"`
+
 	// If true, enables Tailscale Funnel to expose the .well-known endpoints publicly.
 	// This allows external OIDC clients to discover the JWKS without being on the tailnet.
 	// Note: see requirements for enabling Tailscale Funnel: https://tailscale.com/kb/1223/funnel
