@@ -12,13 +12,19 @@ tsiam lets your applications authenticate themselves based on their Tailscale ne
 - **Public key verification**: Expose JWKS endpoints via Tailscale Funnel so external services can verify tokens
 - **Flexible key storage**: Store signing keys locally, in memory, or securely in Azure Key Vault
 
-## Use Cases
+### Use Cases
 
 - Grant access to cloud resources (databases, storage, APIs) based on Tailscale node identity
 - Enable service-to-service authentication
 - Replace static API keys with short-lived, identity-bound tokens
 - Integrate Tailscale identity with existing OIDC-compatible systems
 - Build zero-trust architectures where every request is authenticated
+
+### tsiam vs tsidp
+
+Tailscale's own [tsidp](https://pkg.go.dev/tailscale.com/tsidp) is an OIDC identity provider, designed for **human authentication**. A solution leverages tsidp so that users can log in using their Tailscale identity.
+
+tsiam is designed for **workload/machine identity**: it issues short-lived JWT assertion tokens on behalf of a Tailscale *node* (a machine), which the workload then exchanges for credentials with cloud providers (AWS, Azure, GCP) or other services via workload identity federation. This is comparable to AWS IAM roles, Azure Managed Identity / Workload Identity, GitHub Actions identity federation, etc. The subject is the node's Tailscale identity, not a human user.
 
 ## Installation
 
