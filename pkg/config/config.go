@@ -67,7 +67,25 @@ type ConfigTokens struct {
 	// If false (default), all nodes must have the capability explicitly granted
 	// +default false
 	AllowEmptyNodeCapability bool `yaml:"allowEmptyNodeCapability"`
+
+	// Controls what value is placed in the JWT `sub` claim
+	// Allowed values:
+	//   - "nodeId" (default, recommended): the stable Tailscale node identifier; node IDs are not recycled across the lifetime of a tailnet, so trust policies bound to this value are resistant to device deletion and recreation
+	//   - "name": the Tailscale node name (MagicDNS name without trailing dot)
+	//
+	// WARNING: node names CAN be reused once a device is removed from the tailnet, which means a relying party trust policy keyed on a node name can be silently re-targeted by whoever creates the next device with that name
+	// Only choose `"name"` if you have relying parties that cannot be reconfigured to consume the stable node ID, and treat the node name as a soft identifier (e.g. require additional checks on the `tsiam.nodeId` custom claim)
+	//
+	// In either case the full whois payload (node ID, name, tags, user, IPs) is also exposed under the `tsiam` custom claim
+	// +default "nodeId"
+	SubjectClaim string `yaml:"subjectClaim"`
 }
+
+// Allowed values for ConfigTokens.SubjectClaim
+const (
+	SubjectClaimNodeID = "nodeId"
+	SubjectClaimName   = "name"
+)
 
 // ConfigTSNet holds tsnet configuration
 type ConfigTSNet struct {
@@ -224,6 +242,16 @@ func (c *Config) Validate(logger *slog.Logger) error {
 	}
 	if c.Tokens.Lifetime > 60*time.Minute {
 		return errors.New("configuration open 'tokens.lifetime' must not be more than 60 minutes")
+	}
+
+	// Subject claim selection
+	switch c.Tokens.SubjectClaim {
+	case "":
+		c.Tokens.SubjectClaim = SubjectClaimNodeID
+	case SubjectClaimNodeID, SubjectClaimName:
+		// Valid
+	default:
+		return errors.New("configuration option 'tokens.subjectClaim' is not valid; allowed values: 'nodeId', 'name'")
 	}
 
 	// Audience configuration

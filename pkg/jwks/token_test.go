@@ -40,7 +40,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -52,12 +53,13 @@ func TestNewToken(t *testing.T) {
 		assert.LessOrEqual(t, resp.NotBefore, time.Now().Unix(), "NotBefore should be now or in the past")
 	})
 
-	t.Run("Subject claim matches node name", func(t *testing.T) {
+	t.Run("Subject claim matches provided subject", func(t *testing.T) {
 		resp, err := NewToken(key, TokenRequest{
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -66,7 +68,7 @@ func TestNewToken(t *testing.T) {
 
 		sub, ok := parsedToken.Subject()
 		require.True(t, ok, "Subject claim should be present")
-		assert.Equal(t, "test-node.example.com", sub, "Subject should match node name")
+		assert.Equal(t, "test-node-id", sub, "Subject should match provided NodeID")
 	})
 
 	t.Run("Issuer claim is set correctly", func(t *testing.T) {
@@ -74,7 +76,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://my-issuer.example.com",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -91,7 +94,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -107,7 +111,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "https://my-api.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -125,7 +130,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -154,7 +160,8 @@ func TestNewToken(t *testing.T) {
 					Issuer:   "https://test-issuer.example.com",
 					Audience: "https://test-audience.example.com",
 					Lifetime: tc.lifetime,
-					Subject:  testWhois,
+					Subject:  testWhois.NodeID,
+					Whois:    testWhois,
 				})
 				require.NoError(t, err)
 				after := time.Now()
@@ -184,7 +191,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 10 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 		after := time.Now()
@@ -216,7 +224,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -247,7 +256,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -270,7 +280,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.Error(t, err)
 		require.ErrorContains(t, err, "algorithm")
@@ -281,7 +292,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -303,7 +315,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -318,7 +331,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -326,7 +340,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -341,7 +356,8 @@ func TestNewToken(t *testing.T) {
 				Issuer:   "https://test-issuer.example.com",
 				Audience: "https://test-audience.example.com",
 				Lifetime: 5 * time.Minute,
-				Subject:  testWhois,
+				Subject:  testWhois.NodeID,
+				Whois:    testWhois,
 			})
 			require.NoError(t, err)
 
@@ -357,7 +373,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -374,7 +391,8 @@ func TestNewToken(t *testing.T) {
 			Issuer:   "https://test-issuer.example.com",
 			Audience: "https://test-audience.example.com",
 			Lifetime: 5 * time.Minute,
-			Subject:  testWhois,
+			Subject:  testWhois.NodeID,
+			Whois:    testWhois,
 		})
 		require.NoError(t, err)
 
@@ -390,7 +408,7 @@ func TestNewToken(t *testing.T) {
 		// Verify other claims are still present
 		sub, ok := parsedToken.Subject()
 		require.True(t, ok)
-		assert.Equal(t, "test-node.example.com", sub)
+		assert.Equal(t, "test-node-id", sub)
 
 		iss, ok := parsedToken.Issuer()
 		require.True(t, ok)

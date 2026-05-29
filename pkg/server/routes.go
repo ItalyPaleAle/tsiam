@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/italypaleale/go-kit/httpserver"
+	"github.com/italypaleale/go-kit/tsnetserver"
 
 	"github.com/italypaleale/tsiam/pkg/config"
 	"github.com/italypaleale/tsiam/pkg/jwks"
@@ -82,7 +83,8 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		Issuer:   s.tokenIssuer(),
 		Audience: audience,
 		Lifetime: cfg.Tokens.Lifetime,
-		Subject:  whois,
+		Subject:  resolveSubject(cfg, whois),
+		Whois:    whois,
 	})
 	if err != nil {
 		slog.ErrorContext(r.Context(), "Failed to generate token", slog.Any("error", err))
@@ -156,6 +158,15 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 		TokenEndpoint: endpoint + "/token",
 		JWKSURI:       endpoint + "/.well-known/jwks.json",
 	})
+}
+
+// Returns the value to use for the JWT `sub` claim, based on the configured subject-claim source
+// Defaults to the stable Tailscale node identifier when the configured value is unrecognized
+func resolveSubject(cfg *config.Config, whois tsnetserver.TailscaleWhoIs) string {
+	if cfg.Tokens.SubjectClaim == config.SubjectClaimName {
+		return whois.Name
+	}
+	return whois.NodeID
 }
 
 // extractAudience extracts and validates the audience parameter from the request

@@ -170,10 +170,12 @@ When exchanging tokens with cloud providers, use these audience values:
 
 The JWT token contains your Tailscale node identity in the `tsiam` claim and the requested audience in the `aud` claim:
 
+By default the `sub` claim is the stable Tailscale node identifier; set [`tokens.subjectClaim`](config.md#config-opt-tokens-subjectclaim) to `"name"` to use the (recyclable) node name instead — note the security warning in the config docs.
+
 ```jsonc
 {
-  // Subject: the Tailscale node identity
-  "sub": "my-server.tailnet-name.ts.net",
+  // Subject: the stable Tailscale node identifier (see tokens.subjectClaim)
+  "sub": "nABC123CNTRL",
 
   // Issuer: the tsiam service that issued this token
   "iss": "https://your-tsiam",

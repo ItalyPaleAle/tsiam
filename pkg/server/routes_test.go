@@ -98,7 +98,7 @@ func TestExtractAudience(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create request with query parameters
-			req := httptest.NewRequest(http.MethodPost, "/token", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", nil)
 			q := req.URL.Query()
 			if tt.resource != "" {
 				q.Add("resource", tt.resource)

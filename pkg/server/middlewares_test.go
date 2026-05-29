@@ -136,7 +136,7 @@ func TestRequireNoBrowser(t *testing.T) {
 			handler := requireNoBrowser(testHandler)
 
 			// Create request
-			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 
 			// Set headers
 			for key, value := range tt.headers {
@@ -245,7 +245,7 @@ func TestValidateNoBrowser(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create request
-			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 
 			// Set headers
 			for key, value := range tt.headers {
