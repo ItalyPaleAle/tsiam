@@ -51,14 +51,13 @@ func NewAppMetrics(ctx context.Context) (m *AppMetrics, shutdownFn func(ctx cont
 	return m, shutdownFn, nil
 }
 
-//nolint:contextcheck
-func (m *AppMetrics) RecordAuth(nodeName string, audience string) {
+func (m *AppMetrics) RecordAuth(ctx context.Context, nodeName string, audience string) {
 	if m == nil {
 		return
 	}
 
 	m.auths.Add(
-		context.Background(),
+		context.WithoutCancel(ctx),
 		1,
 		api.WithAttributeSet(
 			attribute.NewSet(

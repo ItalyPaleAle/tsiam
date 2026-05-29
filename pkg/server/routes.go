@@ -62,7 +62,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		slog.WarnContext(r.Context(), "Audience not in global allowlist",
 			slog.String("nodeId", whois.NodeID),
 			slog.String("nodeName", whois.Name),
-			slog.String("requested_audience", audience),
+			slog.String("requestedAudience", audience),
 		)
 		errAudienceNotAllowed.WriteResponse(w, r)
 		return
@@ -74,7 +74,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		slog.WarnContext(r.Context(), "Caller not permitted to request this audience",
 			slog.String("nodeId", whois.NodeID),
 			slog.String("nodeName", whois.Name),
-			slog.String("requested_audience", audience),
+			slog.String("requestedAudience", audience),
 		)
 		errAudienceNotPermitted.WriteResponse(w, r)
 		return
@@ -105,7 +105,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 	)
 
 	// Record the metric
-	s.appMetrics.RecordAuth(whois.Name, audience)
+	s.appMetrics.RecordAuth(r.Context(), whois.Name, audience)
 
 	//nolint:tagliatelle
 	type postTokenResponse struct {

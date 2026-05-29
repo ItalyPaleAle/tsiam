@@ -240,10 +240,10 @@ func (c *Config) Validate(logger *slog.Logger) error {
 	// Token configuration
 	c.Tokens.Lifetime = c.Tokens.Lifetime.Truncate(time.Second)
 	if c.Tokens.Lifetime < time.Minute {
-		return errors.New("configuration open 'tokens.lifetime' must be at least 1 minute")
+		return errors.New("configuration option 'tokens.lifetime' must be at least 1 minute")
 	}
 	if c.Tokens.Lifetime > 60*time.Minute {
-		return errors.New("configuration open 'tokens.lifetime' must not be more than 60 minutes")
+		return errors.New("configuration option 'tokens.lifetime' must not be more than 60 minutes")
 	}
 
 	// Subject claim selection

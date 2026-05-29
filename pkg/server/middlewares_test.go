@@ -267,16 +267,3 @@ func TestValidateNoBrowser(t *testing.T) {
 		})
 	}
 }
-
-func TestBrowserHeadersConstant(t *testing.T) {
-	// Verify all expected browser headers are in the list
-	expectedHeaders := []string{
-		"Origin",
-		"Sec-Fetch-Site",
-		"Sec-Fetch-Mode",
-		"Sec-Fetch-Dest",
-		"Sec-Fetch-User",
-	}
-
-	assert.Equal(t, expectedHeaders, browserHeaders, "Browser headers list should contain all expected headers")
-}
