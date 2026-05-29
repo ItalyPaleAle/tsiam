@@ -91,7 +91,7 @@ func (s *Server) initAppServer() {
 	// Register routes
 	// Note: we do not enable CORS in the server on purpose, as we don't want browsers to make direct connections
 	// If needed, it can be added to public endpoints (.well-known/*) in the future
-	mux.HandleFunc("POST /token", httpserver.UseFunc(s.handlePostToken, requireEmptyBody, requireNoBrowser, requireNotFunneledRequest))
+	mux.HandleFunc("POST /token", httpserver.UseFunc(s.handlePostToken, requireEmptyBody, requireNoBrowser, requireNotFunneledRequest, tokenRateLimit(cfg.Tokens.RateLimitPerMinute)))
 	mux.HandleFunc("GET /.well-known/jwks.json", s.handleGetJWKS)
 	mux.HandleFunc("GET /.well-known/openid-configuration", s.handleGetOpenIDConfiguration)
 	mux.HandleFunc("GET /healthz", httpserver.UseFunc(s.handleGetHealthz, requireNotFunneledRequest))

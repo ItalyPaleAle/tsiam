@@ -85,6 +85,14 @@ tokens:
   ## Default: false
   #allowEmptyNodeCapability: false
 
+  ## tokens.rateLimitPerMinute (number)
+  ## Description:
+  ##   Maximum number of `/token` requests accepted per minute from a single client IP
+  ##   Set to 0 to disable rate limiting
+  ##   The key is the caller's Tailscale IP
+  ## Default: 60
+  #rateLimitPerMinute: 60
+
   ## tokens.subjectClaim (string)
   ## Description:
   ##   Controls what value is placed in the JWT `sub` claim

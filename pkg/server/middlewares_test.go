@@ -10,6 +10,74 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestTokenRateLimit(t *testing.T) {
+	t.Run("Zero or negative rpm disables the limiter", func(t *testing.T) {
+		mw := tokenRateLimit(0)
+		called := 0
+		handler := mw(func(w http.ResponseWriter, r *http.Request) {
+			called++
+			w.WriteHeader(http.StatusOK)
+		})
+		// Hammer many requests from the same IP; none should be rejected
+		for range 50 {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", nil)
+			req.RemoteAddr = "100.64.0.1:1234"
+			rr := httptest.NewRecorder()
+			handler(rr, req)
+			require.Equal(t, http.StatusOK, rr.Code)
+		}
+		assert.Equal(t, 50, called)
+	})
+
+	t.Run("Allows up to the configured limit then 429s", func(t *testing.T) {
+		const rpm = 3
+		mw := tokenRateLimit(rpm)
+		called := 0
+		handler := mw(func(w http.ResponseWriter, r *http.Request) {
+			called++
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// First rpm requests from the same IP pass
+		for range rpm {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", nil)
+			req.RemoteAddr = "100.64.0.2:1234"
+			rr := httptest.NewRecorder()
+			handler(rr, req)
+			require.Equal(t, http.StatusOK, rr.Code)
+		}
+		// The next request from the same IP is throttled
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", nil)
+		req.RemoteAddr = "100.64.0.2:1234"
+		rr := httptest.NewRecorder()
+		handler(rr, req)
+		assert.Equal(t, http.StatusTooManyRequests, rr.Code)
+		assert.Equal(t, rpm, called, "throttled request must not reach the wrapped handler")
+	})
+
+	t.Run("Buckets are per IP", func(t *testing.T) {
+		const rpm = 1
+		mw := tokenRateLimit(rpm)
+		handler := mw(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		mk := func(remote string) *httptest.ResponseRecorder {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", nil)
+			req.RemoteAddr = remote
+			rr := httptest.NewRecorder()
+			handler(rr, req)
+			return rr
+		}
+
+		// IP A: first request OK, second 429
+		assert.Equal(t, http.StatusOK, mk("100.64.0.10:1111").Code)
+		assert.Equal(t, http.StatusTooManyRequests, mk("100.64.0.10:2222").Code)
+		// IP B is unaffected by A's throttling
+		assert.Equal(t, http.StatusOK, mk("100.64.0.11:1111").Code)
+	})
+}
+
 func TestRequireEmptyBody(t *testing.T) {
 	called := false
 	handler := requireEmptyBody(func(w http.ResponseWriter, r *http.Request) {

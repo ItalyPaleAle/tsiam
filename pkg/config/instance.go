@@ -38,7 +38,8 @@ func GetDefaultConfig() *Config {
 			OmitHealthChecks: true,
 		},
 		Tokens: ConfigTokens{
-			Lifetime: 5 * time.Minute,
+			Lifetime:           5 * time.Minute,
+			RateLimitPerMinute: 60,
 		},
 		TSNet: ConfigTSNet{
 			Hostname:  "tsiam",

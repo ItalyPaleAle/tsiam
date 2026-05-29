@@ -68,6 +68,12 @@ type ConfigTokens struct {
 	// +default false
 	AllowEmptyNodeCapability bool `yaml:"allowEmptyNodeCapability"`
 
+	// Maximum number of `/token` requests accepted per minute from a single client IP
+	// Set to 0 to disable rate limiting
+	// The key is the caller's Tailscale IP
+	// +default 60
+	RateLimitPerMinute int `yaml:"rateLimitPerMinute"`
+
 	// Controls what value is placed in the JWT `sub` claim
 	// Allowed values:
 	//   - "nodeId" (default, recommended): the unique, stable Tailscale node identifier
@@ -244,6 +250,11 @@ func (c *Config) Validate(logger *slog.Logger) error {
 	}
 	if c.Tokens.Lifetime > 60*time.Minute {
 		return errors.New("configuration option 'tokens.lifetime' must not be more than 60 minutes")
+	}
+
+	// Rate limit
+	if c.Tokens.RateLimitPerMinute < 0 {
+		return errors.New("configuration option 'tokens.rateLimitPerMinute' cannot be negative; set to 0 to disable rate limiting")
 	}
 
 	// Subject claim selection

@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
+
+	"github.com/go-chi/httprate"
 
 	"github.com/italypaleale/go-kit/httpserver"
 	"github.com/italypaleale/go-kit/tsnetserver"
@@ -28,6 +31,20 @@ func rejectOversizedRequest(maxSize int64) httpserver.Middleware {
 			}
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+// Returns a middleware that limits each caller to rpm requests per minute, keyed on the caller's IP address (from r.RemoteAddr)
+// For tsnet-served requests the RemoteAddr is the caller's Tailscale IP, so each tailnet node is throttled independently
+func tokenRateLimit(rpm int) httpserver.MiddlewareFunc {
+	if rpm <= 0 {
+		// Disable the middleware
+		return func(next http.HandlerFunc) http.HandlerFunc { return next }
+	}
+
+	rl := httprate.LimitByIP(rpm, time.Minute)
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return rl(next).ServeHTTP
 	}
 }
 
