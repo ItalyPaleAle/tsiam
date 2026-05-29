@@ -3,7 +3,9 @@ package keystorage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -32,12 +34,16 @@ func NewFileKeyStorage(path string) (*FileKeyStorage, error) {
 // Load loads the signing key from a file
 func (f *FileKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 	data, err := os.ReadFile(f.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Key doesn't exist yet
-			return nil, errKeyNoExist
-		}
+	if errors.Is(err, fs.ErrNotExist) {
+		// Key doesn't exist yet
+		return nil, errKeyNoExist
+	} else if err != nil {
 		return nil, fmt.Errorf("failed to read key file: %w", err)
+	}
+
+	// A zero-byte file is treated as missing rather than a parse error
+	if len(data) == 0 {
+		return nil, errKeyNoExist
 	}
 
 	key, err := jwk.ParseKey(data)

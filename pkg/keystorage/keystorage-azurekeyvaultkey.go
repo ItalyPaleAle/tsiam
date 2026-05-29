@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -103,12 +104,16 @@ func NewAzureKeyVaultKeyStorageWithClient(client AzureKeyVaultKeyClient, keyName
 func (a *AzureKeyVaultKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 	// Read the wrapped key from disk
 	wrappedData, err := os.ReadFile(a.storagePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Key doesn't exist yet
-			return nil, errKeyNoExist
-		}
+	if errors.Is(err, fs.ErrNotExist) {
+		// Key doesn't exist yet
+		return nil, errKeyNoExist
+	} else if err != nil {
 		return nil, fmt.Errorf("failed to read wrapped key file: %w", err)
+	}
+
+	// A zero-byte file is treated as missing rather than an unwrap error
+	if len(wrappedData) == 0 {
+		return nil, errKeyNoExist
 	}
 
 	// Unwrap the key using Azure Key Vault
