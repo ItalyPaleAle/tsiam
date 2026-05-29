@@ -166,3 +166,77 @@ func TestIsAudiencePermittedForCaller(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchAudienceCapability(t *testing.T) {
+	const audience = "https://api.example.com"
+
+	tests := []struct {
+		name                   string
+		capMap                 tailcfg.PeerCapMap
+		allowWithoutCapability bool
+		expectMatched          bool
+		expectSubject          string
+	}{
+		{
+			name: "Matching grant with subject populates subject",
+			capMap: tailcfg.PeerCapMap{
+				AudienceCapability: []tailcfg.RawMessage{
+					tailcfg.RawMessage(`{"allowedAudiences":["https://api.example.com"],"subject":"workload-group-a"}`),
+				},
+			},
+			expectMatched: true,
+			expectSubject: "workload-group-a",
+		},
+		{
+			name: "Matching grant without subject returns empty subject",
+			capMap: tailcfg.PeerCapMap{
+				AudienceCapability: []tailcfg.RawMessage{
+					tailcfg.RawMessage(`{"allowedAudiences":["https://api.example.com"]}`),
+				},
+			},
+			expectMatched: true,
+			expectSubject: "",
+		},
+		{
+			name: "Only the matching grant's subject is returned, not earlier non-matching grants",
+			capMap: tailcfg.PeerCapMap{
+				AudienceCapability: []tailcfg.RawMessage{
+					tailcfg.RawMessage(`{"allowedAudiences":["https://other.example.com"],"subject":"other-group"}`),
+					tailcfg.RawMessage(`{"allowedAudiences":["https://api.example.com"],"subject":"target-group"}`),
+				},
+			},
+			expectMatched: true,
+			expectSubject: "target-group",
+		},
+		{
+			name: "Non-matching grants return zero capability",
+			capMap: tailcfg.PeerCapMap{
+				AudienceCapability: []tailcfg.RawMessage{
+					tailcfg.RawMessage(`{"allowedAudiences":["https://other.example.com"],"subject":"other-group"}`),
+				},
+			},
+			expectMatched: false,
+			expectSubject: "",
+		},
+		{
+			name:                   "No capability with allowWithoutCapability returns zero capability but matched",
+			capMap:                 tailcfg.PeerCapMap{},
+			allowWithoutCapability: true,
+			expectMatched:          true,
+			expectSubject:          "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			whois := tsnetserver.TailscaleWhoIs{
+				NodeID: "test-node",
+				CapMap: tt.capMap,
+			}
+
+			matched, ok := MatchAudienceCapability(&whois, audience, tt.allowWithoutCapability)
+			assert.Equal(t, tt.expectMatched, ok)
+			assert.Equal(t, tt.expectSubject, matched.Subject)
+		})
+	}
+}

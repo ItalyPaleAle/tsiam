@@ -68,7 +68,8 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check per-caller authorization via Tailscale capabilities
-	if !tsnet.IsAudiencePermittedForCaller(&whois, audience, cfg.Tokens.AllowEmptyNodeCapability) {
+	matchedCap, permitted := tsnet.MatchAudienceCapability(&whois, audience, cfg.Tokens.AllowEmptyNodeCapability)
+	if !permitted {
 		slog.WarnContext(r.Context(), "Caller not permitted to request this audience",
 			slog.String("nodeId", whois.NodeID),
 			slog.String("nodeName", whois.Name),
@@ -83,7 +84,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		Issuer:   s.tokenIssuer(),
 		Audience: audience,
 		Lifetime: cfg.Tokens.Lifetime,
-		Subject:  resolveSubject(cfg, whois),
+		Subject:  resolveSubject(cfg, whois, matchedCap),
 		Whois:    whois,
 	})
 	if err != nil {
@@ -161,10 +162,15 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 }
 
 // Returns the value to use for the JWT `sub` claim, based on the configured subject-claim source
-// Defaults to the stable Tailscale node identifier when the configured value is unrecognized
-func resolveSubject(cfg *config.Config, whois tsnetserver.TailscaleWhoIs) string {
-	if cfg.Tokens.SubjectClaim == config.SubjectClaimName {
+// Defaults to the stable Tailscale node identifier when the configured value is unrecognized, when the configured value is "capability" but the matched grant has no `subject`, or when the caller has no capability at all (only reachable when `allowEmptyNodeCapability` is true)
+func resolveSubject(cfg *config.Config, whois tsnetserver.TailscaleWhoIs, matchedCap tsnet.TsiamCapability) string {
+	switch cfg.Tokens.SubjectClaim {
+	case config.SubjectClaimName:
 		return whois.Name
+	case config.SubjectClaimCapability:
+		if matchedCap.Subject != "" {
+			return matchedCap.Subject
+		}
 	}
 	return whois.NodeID
 }
