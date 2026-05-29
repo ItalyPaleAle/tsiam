@@ -11,9 +11,12 @@ import (
 
 const tsiamHeaderName = "X-Tsiam"
 
+// Indirection over tsnetserver.IsFunneledRequest so tests can simulate a funneled request without going through the real tsnet ConnContext (the funnel context key is unexported upstream)
+var isFunneledRequest = tsnetserver.IsFunneledRequest
+
 func requireNotFunneledRequest(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if tsnetserver.IsFunneledRequest(r) {
+		if isFunneledRequest(r) {
 			// If the request is funneled, return a 404
 			http.NotFound(w, r)
 			return

@@ -160,6 +160,50 @@ func TestRequireNoBrowser(t *testing.T) {
 	}
 }
 
+func TestRequireNotFunneledRequest(t *testing.T) {
+	// Helper that swaps the package-level seam for the duration of the subtest
+	withFunneled := func(t *testing.T, funneled bool) {
+		t.Helper()
+		prev := isFunneledRequest
+		isFunneledRequest = func(*http.Request) bool { return funneled }
+		t.Cleanup(func() { isFunneledRequest = prev })
+	}
+
+	t.Run("Non-funneled request passes through", func(t *testing.T) {
+		withFunneled(t, false)
+
+		handlerCalled := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlerCalled = true
+			w.WriteHeader(http.StatusNoContent)
+		})
+
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/whatever", nil)
+		rr := httptest.NewRecorder()
+		requireNotFunneledRequest(next)(rr, req)
+
+		assert.True(t, handlerCalled, "non-funneled request should reach the wrapped handler")
+		assert.Equal(t, http.StatusNoContent, rr.Code)
+	})
+
+	t.Run("Funneled request returns 404 and skips handler", func(t *testing.T) {
+		withFunneled(t, true)
+
+		handlerCalled := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlerCalled = true
+			w.WriteHeader(http.StatusOK)
+		})
+
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/whatever", nil)
+		rr := httptest.NewRecorder()
+		requireNotFunneledRequest(next)(rr, req)
+
+		assert.False(t, handlerCalled, "funneled request must not reach the wrapped handler")
+		assert.Equal(t, http.StatusNotFound, rr.Code)
+	})
+}
+
 func TestValidateNoBrowser(t *testing.T) {
 	tests := []struct {
 		name        string
