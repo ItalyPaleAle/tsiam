@@ -55,8 +55,8 @@ func (f *FileKeyStorage) Store(ctx context.Context, key jwk.Key) error {
 		return fmt.Errorf("failed to encode key: %w", err)
 	}
 
-	// Write with restricted permissions
-	err = os.WriteFile(f.path, data, 0600)
+	// Atomic write so a torn write cannot leave an unparseable key file on disk
+	err = writeFileAtomic(f.path, data)
 	if err != nil {
 		return fmt.Errorf("failed to write key file: %w", err)
 	}

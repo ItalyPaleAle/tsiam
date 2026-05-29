@@ -160,8 +160,8 @@ func (a *AzureKeyVaultKeyStorage) Store(ctx context.Context, key jwk.Key) error 
 		return errors.New("wrapped key result is nil")
 	}
 
-	// Write the wrapped key to disk with restricted permissions
-	err = os.WriteFile(a.storagePath, resp.Result, 0600)
+	// Atomic write so a torn write cannot leave an unrecoverable wrapped-ciphertext blob on disk
+	err = writeFileAtomic(a.storagePath, resp.Result)
 	if err != nil {
 		return fmt.Errorf("failed to write wrapped key file: %w", err)
 	}
