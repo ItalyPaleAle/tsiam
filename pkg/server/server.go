@@ -42,6 +42,11 @@ type Server struct {
 	// TSNet server instance
 	tsnetServer *tsnetserver.TSNetServer
 
+	// Request-time tsnet dependencies, broken out so handler tests can supply mocks
+	// In production both delegate to tsnetServer
+	whoIs    func(r *http.Request) (tsnetserver.TailscaleWhoIs, error)
+	hostname func() string
+
 	// Token signing key
 	signingKey jwk.Key
 	// Public JWKS, pre-computed (encoded as JSON)
@@ -60,6 +65,8 @@ func NewServer(opts NewServerOpts) (s *Server, err error) {
 	s = &Server{
 		appMetrics:  opts.AppMetrics,
 		tsnetServer: opts.TSNetServer,
+		whoIs:       opts.TSNetServer.WhoIs,
+		hostname:    opts.TSNetServer.Hostname,
 		signingKey:  opts.SigningKey,
 	}
 
@@ -221,5 +228,5 @@ func (s *Server) startAppServer(ctx context.Context, appSrvErrCh chan<- error) (
 
 // Returns the issuer URL emitted in the JWT `iss` claim and as the `issuer` field of the OIDC discovery document
 func (s *Server) tokenIssuer() string {
-	return "https://" + s.tsnetServer.Hostname()
+	return "https://" + s.hostname()
 }

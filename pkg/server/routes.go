@@ -37,7 +37,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Get()
 
 	// Get Tailscale connection info from tsnet
-	whois, err := s.tsnetServer.WhoIs(r)
+	whois, err := s.whoIs(r)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "Failed to get Tailscale identity", slog.Any("error", err))
 		errNodeIdentity.WriteResponse(w, r)
@@ -117,6 +117,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return the token
+	w.Header().Set(httpserver.HeaderContentType, httpserver.ContentTypeJson)
 	httpserver.RespondWithJSON(w, r, postTokenResponse{
 		AccessToken: token.Token,
 		TokenType:   "Bearer",
@@ -144,7 +145,7 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 	}
 
 	// The tsnet FQDN is the MagicDNS name that Funnel exposes publicly, so the same hostname works for both tailnet-only and Funnel deployments
-	endpoint := "https://" + s.tsnetServer.Hostname()
+	endpoint := "https://" + s.hostname()
 
 	w.Header().Set(httpserver.HeaderContentType, httpserver.ContentTypeJson)
 	httpserver.RespondWithJSON(w, r, oidcConfiguration{
