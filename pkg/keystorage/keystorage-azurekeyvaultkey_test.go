@@ -109,7 +109,13 @@ func TestAzureKeyVaultKeyStorage_LoadExisting(t *testing.T) {
 			"test-key",
 			"",
 			mock.MatchedBy(func(params azkeys.KeyOperationParameters) bool {
-				return params.Value != nil && string(params.Value) == string(wrappedData)
+				if params.Value == nil || string(params.Value) != string(wrappedData) {
+					return false
+				}
+				if params.Algorithm == nil || *params.Algorithm != azkeys.EncryptionAlgorithmRSAOAEP256 {
+					return false
+				}
+				return true
 			}),
 			mock.Anything,
 		).
@@ -187,7 +193,14 @@ func TestAzureKeyVaultKeyStorage_Store(t *testing.T) {
 					return false
 				}
 				_, err := jwk.ParseKey(params.Value)
-				return err == nil
+				if err != nil {
+					return false
+				}
+				// Verify the wrapping algorithm
+				if params.Algorithm == nil || *params.Algorithm != azkeys.EncryptionAlgorithmRSAOAEP256 {
+					return false
+				}
+				return true
 			}),
 			mock.Anything,
 		).

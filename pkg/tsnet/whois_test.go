@@ -1,6 +1,8 @@
 package tsnet
 
 import (
+	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -251,4 +253,49 @@ func TestMatchAudienceCapability(t *testing.T) {
 			assert.Equal(t, tt.expectSubject, matched.Subject)
 		})
 	}
+}
+
+// MatchAudienceCapability consumes attacker-influenced JSON straight out of Tailscale ACL grants
+// The fuzzer verifies that no malformed input can panic the parser or trick it into approving an audience it shouldn't
+func FuzzMatchAudienceCapability(f *testing.F) {
+	// Seed with known-good and known-malformed shapes
+	f.Add([]byte(`{"allowedAudiences":["https://api.example.com"]}`))
+	f.Add([]byte(`{"allowedAudiences":["https://api.example.com"],"subject":"group-a"}`))
+	f.Add([]byte(`{"allowedAudiences":[]}`))
+	f.Add([]byte(`{"allowedAudience":["https://api.example.com"]}`)) // typo - unknown field
+	f.Add([]byte(`not valid json`))
+	f.Add([]byte(`null`))
+	f.Add([]byte(`123`))
+	f.Add([]byte(``))
+
+	const targetAudience = "https://api.example.com"
+
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		whois := &tsnetserver.TailscaleWhoIs{
+			NodeID: "fuzz-node",
+			CapMap: tailcfg.PeerCapMap{
+				AudienceCapability: []tailcfg.RawMessage{tailcfg.RawMessage(raw)},
+			},
+		}
+
+		// Must never panic, regardless of input
+		matched, ok := MatchAudienceCapability(t.Context(), whois, targetAudience, false)
+
+		// If we matched, the input MUST decode to a TsiamCapability containing the target audience
+		// This catches a regression where DisallowUnknownFields is removed and a typo'd field silently passes
+		if ok {
+			var decoded TsiamCapability
+			err := json.Unmarshal(raw, &decoded)
+			if err != nil {
+				t.Fatalf("matched %q but unmarshal failed: %v", raw, err)
+			}
+			if !slices.Contains(decoded.AllowedAudiences, targetAudience) {
+				t.Fatalf("matched %q but allowedAudiences %v does not contain %q", raw, decoded.AllowedAudiences, targetAudience)
+			}
+			// And the returned cap must equal what's in the grant
+			if matched.Subject != decoded.Subject {
+				t.Fatalf("matched.Subject=%q but decoded.Subject=%q for input %q", matched.Subject, decoded.Subject, raw)
+			}
+		}
+	})
 }

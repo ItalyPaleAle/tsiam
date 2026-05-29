@@ -91,7 +91,7 @@ func (s *Server) initAppServer() {
 	// Register routes
 	// Note: we do not enable CORS in the server on purpose, as we don't want browsers to make direct connections
 	// If needed, it can be added to public endpoints (.well-known/*) in the future
-	mux.HandleFunc("POST /token", httpserver.UseFunc(s.handlePostToken, requireNoBrowser, requireNotFunneledRequest))
+	mux.HandleFunc("POST /token", httpserver.UseFunc(s.handlePostToken, requireEmptyBody, requireNoBrowser, requireNotFunneledRequest))
 	mux.HandleFunc("GET /.well-known/jwks.json", s.handleGetJWKS)
 	mux.HandleFunc("GET /.well-known/openid-configuration", s.handleGetOpenIDConfiguration)
 	mux.HandleFunc("GET /healthz", httpserver.UseFunc(s.handleGetHealthz, requireNotFunneledRequest))
@@ -111,7 +111,9 @@ func (s *Server) initAppServer() {
 	middlewares := []httpserver.Middleware{
 		// Recover from panics
 		sloghttp.Recovery,
-		// Limit request body to 1KB
+		// Reject oversized requests upfront based on Content-Length so we never read or TLS-decrypt the body
+		rejectOversizedRequest(maxBodySize),
+		// Wrap r.Body with MaxBytesReader as a backstop against chunked / no-Content-Length attacks that bypass the upfront check, in case a future handler does read the body
 		httpserver.MiddlewareMaxBodySize(maxBodySize),
 		// Log requests
 		sloghttp.NewWithFilters(slog.Default(), filters...),
@@ -210,7 +212,8 @@ func (s *Server) startAppServer(ctx context.Context, appSrvErrCh chan<- error) (
 	}
 
 	// Start the HTTP server in a background goroutine
-	go func() { //nolint:contextcheck
+	// Tracked by s.wg so Run does not return while Serve is still draining connections after shutdown
+	s.wg.Go(func() { //nolint:contextcheck
 		defer s.tsListener.Close() //nolint:errcheck
 
 		// Next call blocks until the server is shut down
@@ -221,7 +224,7 @@ func (s *Server) startAppServer(ctx context.Context, appSrvErrCh chan<- error) (
 			default:
 			}
 		}
-	}()
+	})
 
 	return nil
 }

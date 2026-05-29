@@ -204,5 +204,13 @@ func extractAudience(r *http.Request) (string, *httpserver.ApiError) {
 		return "", errAudienceTooLong
 	}
 
+	// Reject control / non-printable bytes
+	// Audiences end up in JWT claims and in log lines, so a CR/LF or other control byte here would let an attacker inject log lines or break consumers that don't quote the audience
+	for _, c := range res {
+		if c < 0x20 || c == 0x7f {
+			return "", errAudienceInvalidChars
+		}
+	}
+
 	return res, nil
 }

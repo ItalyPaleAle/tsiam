@@ -1,14 +1,19 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/italypaleale/go-kit/httpserver"
 	"github.com/italypaleale/go-kit/tsnetserver"
+	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/italypaleale/tsiam/pkg/jwks"
 )
 
 func TestExtractAudience(t *testing.T) {
@@ -93,6 +98,30 @@ func TestExtractAudience(t *testing.T) {
 			audience:    strings.Repeat("a", 512),
 			expected:    strings.Repeat("a", 512),
 			expectError: false,
+		},
+		{
+			name:        "Audience containing CR is rejected",
+			resource:    "https://api.example.com\r\nLog-Injection: pwned",
+			audience:    "",
+			expected:    "",
+			expectError: true,
+			errorType:   "audience_invalid_chars",
+		},
+		{
+			name:        "Audience containing NUL is rejected",
+			resource:    "https://api.example.com\x00admin",
+			audience:    "",
+			expected:    "",
+			expectError: true,
+			errorType:   "audience_invalid_chars",
+		},
+		{
+			name:        "Audience containing DEL is rejected",
+			resource:    "https://api.example.com\x7f",
+			audience:    "",
+			expected:    "",
+			expectError: true,
+			errorType:   "audience_invalid_chars",
 		},
 	}
 
@@ -183,4 +212,72 @@ func TestSanitizeWhois(t *testing.T) {
 			assert.Equal(t, tt.input.Tags, result.Tags)
 		})
 	}
+}
+
+const discoveryTestHostname = "tsiam.test-tailnet.ts.net"
+
+// Builds a Server with a fresh signing key and a pre-computed JWKS for discovery tests
+// Hostname is fixed so the OIDC URLs are predictable; whoIs is unused by these handlers
+func newDiscoveryServer(t *testing.T) *Server {
+	t.Helper()
+	signingKey, err := jwks.NewSigningKey("ES256", "")
+	require.NoError(t, err)
+	publicJwks, err := jwks.GetPublicJWKSAsJSON(signingKey)
+	require.NoError(t, err)
+	return &Server{
+		signingKey: signingKey,
+		publicJwks: publicJwks,
+		hostname:   func() string { return discoveryTestHostname },
+	}
+}
+
+func TestHandleGetJWKS(t *testing.T) {
+	s := newDiscoveryServer(t)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/jwks.json", nil)
+	rr := httptest.NewRecorder()
+	s.handleGetJWKS(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Header().Get(httpserver.HeaderContentType), "application/json")
+
+	// Body must be byte-identical to the precomputed JWKS; any drift between the cached bytes and what's served would break relying-party verification
+	assert.Equal(t, string(s.publicJwks), rr.Body.String())
+
+	// The body must round-trip through jwk.ParseString and contain a key whose kid matches the live signing key
+	set, err := jwk.ParseString(rr.Body.String())
+	require.NoError(t, err)
+	require.Equal(t, 1, set.Len(), "JWKS should contain exactly one key for the live signing key")
+
+	pubKey, ok := set.Key(0)
+	require.True(t, ok)
+	kid, ok := pubKey.KeyID()
+	require.True(t, ok)
+	expectedKid, ok := s.signingKey.KeyID()
+	require.True(t, ok)
+	assert.Equal(t, expectedKid, kid)
+}
+
+func TestHandleGetOpenIDConfiguration(t *testing.T) {
+	s := newDiscoveryServer(t)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/openid-configuration", nil)
+	rr := httptest.NewRecorder()
+	s.handleGetOpenIDConfiguration(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Header().Get(httpserver.HeaderContentType), "application/json")
+
+	//nolint:tagliatelle
+	var doc struct {
+		Issuer        string `json:"issuer"`
+		TokenEndpoint string `json:"token_endpoint"`
+		JWKSURI       string `json:"jwks_uri"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &doc))
+
+	expectedBase := "https://" + discoveryTestHostname
+	assert.Equal(t, expectedBase, doc.Issuer)
+	assert.Equal(t, expectedBase+"/token", doc.TokenEndpoint)
+	assert.Equal(t, expectedBase+"/.well-known/jwks.json", doc.JWKSURI)
 }

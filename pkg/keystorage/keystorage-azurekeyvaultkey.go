@@ -48,11 +48,16 @@ func NewAzureKeyVaultKeyStorage(vaultURL string, keyName string, storagePath str
 		return nil, errors.New("credential cannot be nil")
 	}
 
-	// Ensure directory exists
+	// Ensure directory exists with restrictive permissions
+	// MkdirAll only honors the mode on creation, so an existing dir with looser bits would silently remain world-readable, the explicit Chmod enforces 0700 on every run
 	dir := filepath.Dir(storagePath)
 	err := os.MkdirAll(dir, 0700)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create key storage directory: %w", err)
+	}
+	err = os.Chmod(dir, 0700) //nolint:gosec // directory needs the execute bit, gosec only knows about files
+	if err != nil {
+		return nil, fmt.Errorf("failed to chmod key storage directory: %w", err)
 	}
 
 	client, err := azkeys.NewClient(vaultURL, credential, &azkeys.ClientOptions{
@@ -86,11 +91,16 @@ func NewAzureKeyVaultKeyStorageWithClient(client AzureKeyVaultKeyClient, keyName
 		return nil, errors.New("storagePath cannot be empty")
 	}
 
-	// Ensure directory exists
+	// Ensure directory exists with restrictive permissions
+	// MkdirAll only honors the mode on creation, so an existing dir with looser bits would silently remain world-readable, the explicit Chmod enforces 0700 on every run
 	dir := filepath.Dir(storagePath)
 	err := os.MkdirAll(dir, 0700)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create key storage directory: %w", err)
+	}
+	err = os.Chmod(dir, 0700) //nolint:gosec // directory needs the execute bit, gosec only knows about files
+	if err != nil {
+		return nil, fmt.Errorf("failed to chmod key storage directory: %w", err)
 	}
 
 	return &AzureKeyVaultKeyStorage{

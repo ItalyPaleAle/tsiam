@@ -14,6 +14,45 @@ const tsiamHeaderName = "X-Tsiam"
 // Indirection over tsnetserver.IsFunneledRequest so tests can simulate a funneled request without going through the real tsnet ConnContext (the funnel context key is unexported upstream)
 var isFunneledRequest = tsnetserver.IsFunneledRequest
 
+// Rejects with 413 when the request's Content-Length exceeds maxSize, before any handler runs
+// httpserver.MiddlewareMaxBodySize wraps r.Body with MaxBytesReader, but that only enforces the cap when the handler actually reads the body
+// /token uses query parameters and never reads its body, so an attacker could otherwise force the server to receive arbitrary amounts of TLS-encrypted body data and pay the decrypt + keep-alive-drain cost
+// This middleware short-circuits that by trusting Content-Length and closing the connection on requests that promise more than maxSize
+func rejectOversizedRequest(maxSize int64) httpserver.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.ContentLength > maxSize {
+				w.Header().Set("Connection", "close")
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// Rejects any request that carries a body (Content-Length > 0, or chunked encoding with any bytes available)
+// Applied to /token which only consumes query parameters; reading 1 byte catches clients that omit Content-Length (chunked transfer-encoding) and stream a body anyway
+func requireEmptyBody(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength > 0 {
+			w.Header().Set("Connection", "close")
+			http.Error(w, "this endpoint does not accept a request body", http.StatusRequestEntityTooLarge)
+			return
+		}
+		// Probe the body for anything chunked/transfer-encoded that bypassed the Content-Length check
+		// We only need to know "is there *any* byte"; the MaxBytesReader middleware caps the actual read at maxBodySize so a malicious chunked stream cannot make this read consume unbounded memory
+		buf := make([]byte, 1)
+		n, _ := r.Body.Read(buf)
+		if n > 0 {
+			w.Header().Set("Connection", "close")
+			http.Error(w, "this endpoint does not accept a request body", http.StatusRequestEntityTooLarge)
+			return
+		}
+		next(w, r)
+	}
+}
+
 func requireNotFunneledRequest(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if isFunneledRequest(r) {

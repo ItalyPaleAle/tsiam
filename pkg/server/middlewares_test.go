@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -8,6 +9,106 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRequireEmptyBody(t *testing.T) {
+	called := false
+	handler := requireEmptyBody(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	t.Run("No body passes through", func(t *testing.T) {
+		called = false
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", nil)
+		rr := httptest.NewRecorder()
+		handler(rr, req)
+		assert.True(t, called)
+		assert.Equal(t, http.StatusNoContent, rr.Code)
+	})
+
+	t.Run("Body with Content-Length rejected upfront", func(t *testing.T) {
+		called = false
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", bytes.NewReader([]byte("hi")))
+		req.ContentLength = 2
+		rr := httptest.NewRecorder()
+		handler(rr, req)
+		assert.False(t, called, "handler must not run when body is present")
+		assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code)
+	})
+
+	t.Run("Chunked body (ContentLength = -1) detected and rejected", func(t *testing.T) {
+		called = false
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", bytes.NewReader([]byte("chunked-data")))
+		req.ContentLength = -1 // Simulates chunked transfer encoding
+		rr := httptest.NewRecorder()
+		handler(rr, req)
+		assert.False(t, called, "handler must not run when chunked body has data")
+		assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code)
+	})
+
+	t.Run("Empty chunked body (ContentLength = -1, no data) passes through", func(t *testing.T) {
+		called = false
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", bytes.NewReader(nil))
+		req.ContentLength = -1
+		rr := httptest.NewRecorder()
+		handler(rr, req)
+		assert.True(t, called, "empty chunked body should be allowed")
+		assert.Equal(t, http.StatusNoContent, rr.Code)
+	})
+}
+
+func TestRejectOversizedRequest(t *testing.T) {
+	mw := rejectOversizedRequest(maxBodySize)
+	called := false
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	t.Run("Under cap passes through", func(t *testing.T) {
+		called = false
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", bytes.NewReader([]byte("hi")))
+		req.ContentLength = 2
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		assert.True(t, called)
+		assert.Equal(t, http.StatusNoContent, rr.Code)
+	})
+
+	t.Run("At cap passes through", func(t *testing.T) {
+		called = false
+		payload := bytes.Repeat([]byte("a"), maxBodySize)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", bytes.NewReader(payload))
+		req.ContentLength = int64(len(payload))
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		assert.True(t, called)
+		assert.Equal(t, http.StatusNoContent, rr.Code)
+	})
+
+	t.Run("Over cap returns 413 and skips handler", func(t *testing.T) {
+		called = false
+		payload := bytes.Repeat([]byte("a"), maxBodySize*2)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", bytes.NewReader(payload))
+		req.ContentLength = int64(len(payload))
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		assert.False(t, called, "handler must not be called when the body is oversized")
+		assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code)
+		assert.Equal(t, "close", rr.Header().Get("Connection"))
+	})
+
+	t.Run("Unknown Content-Length passes through to handler / MaxBytesReader backstop", func(t *testing.T) {
+		// Chunked transfer encoding sends ContentLength = -1; the upfront check must let it through (the backstop middleware will still cap any actual body read)
+		called = false
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", bytes.NewReader([]byte("ignored")))
+		req.ContentLength = -1
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		assert.True(t, called)
+		assert.Equal(t, http.StatusNoContent, rr.Code)
+	})
+}
 
 func TestRequireNoBrowser(t *testing.T) {
 	tests := []struct {
