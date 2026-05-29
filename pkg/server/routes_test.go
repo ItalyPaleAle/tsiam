@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/italypaleale/go-kit/tsnetserver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -121,6 +122,65 @@ func TestExtractAudience(t *testing.T) {
 				require.Nil(t, err, "Expected no error but got: %v", err)
 				assert.Equal(t, tt.expected, result)
 			}
+		})
+	}
+}
+
+func TestSanitizeWhois(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          tsnetserver.TailscaleWhoIs
+		expectUserName string
+	}{
+		{
+			name: "Untagged node retains UserLoginName",
+			input: tsnetserver.TailscaleWhoIs{
+				NodeID:        "node1",
+				Name:          "alice-laptop.tailnet.ts.net",
+				UserLoginName: "alice@example.com",
+				Tags:          nil,
+			},
+			expectUserName: "alice@example.com",
+		},
+		{
+			name: "Tagged node clears UserLoginName",
+			input: tsnetserver.TailscaleWhoIs{
+				NodeID:        "node2",
+				Name:          "db-backup-1.tailnet.ts.net",
+				UserLoginName: "admin@example.com",
+				Tags:          []string{"tag:db-backup"},
+			},
+			expectUserName: "",
+		},
+		{
+			name: "Node with multiple tags clears UserLoginName",
+			input: tsnetserver.TailscaleWhoIs{
+				NodeID:        "node3",
+				Name:          "worker-1.tailnet.ts.net",
+				UserLoginName: "admin@example.com",
+				Tags:          []string{"tag:worker", "tag:prod"},
+			},
+			expectUserName: "",
+		},
+		{
+			name: "Empty tags slice preserves UserLoginName",
+			input: tsnetserver.TailscaleWhoIs{
+				NodeID:        "node4",
+				UserLoginName: "bob@example.com",
+				Tags:          []string{},
+			},
+			expectUserName: "bob@example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeWhois(tt.input)
+			assert.Equal(t, tt.expectUserName, result.UserLoginName)
+			// Other identifying fields should pass through untouched
+			assert.Equal(t, tt.input.NodeID, result.NodeID)
+			assert.Equal(t, tt.input.Name, result.Name)
+			assert.Equal(t, tt.input.Tags, result.Tags)
 		})
 	}
 }

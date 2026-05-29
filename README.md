@@ -200,7 +200,7 @@ By default the `sub` claim is the stable Tailscale node identifier. Set [`tokens
     "ip4": "100.64.0.1",
     "ip6": "fd7a:115c:a1e0::1",
     "userLoginName": "user@example.com",
-    "tags": ["tag:webserver"]
+    "tags": []
   },
 
   // Unique token identifier: cryptographically random 24-byte value encoded as base64url
@@ -208,6 +208,8 @@ By default the `sub` claim is the stable Tailscale node identifier. Set [`tokens
   "jti": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"
 }
 ```
+
+> **Tagged nodes:** for nodes that carry one or more Tailscale tags (`tag:*`), `tsiam.userLoginName` is always emitted as an empty string. The upstream value is the email of whoever authorized the tag, not the workload's owner, so it must not be used as a user-identity signal in relying-party trust policies. Bind tagged-workload trust policies to `tsiam.tags` and `tsiam.nodeId` instead.
 
 ### Audience Authorization
 

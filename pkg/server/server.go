@@ -219,6 +219,7 @@ func (s *Server) startAppServer(ctx context.Context, appSrvErrCh chan<- error) (
 	return nil
 }
 
+// Returns the issuer URL emitted in the JWT `iss` claim and as the `issuer` field of the OIDC discovery document
 func (s *Server) tokenIssuer() string {
 	return "https://" + s.tsnetServer.Hostname()
 }

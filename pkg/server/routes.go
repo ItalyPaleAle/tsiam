@@ -43,6 +43,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		errNodeIdentity.WriteResponse(w, r)
 		return
 	}
+	whois = sanitizeWhois(whois)
 
 	// Extract and validate audience parameter
 	audience, apiErr := extractAudience(r)
@@ -142,16 +143,8 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 		JWKSURI       string `json:"jwks_uri"`
 	}
 
-	// For the endpoints, we get the hostname used in the request
-	// This enables the use of funnel too
-	// However, we require the endpoint to use HTTPS; if using plain HTTP, we return the default hostname of the tsnet server
-	var endpoint string
-	if r.URL.Scheme == "https" {
-		endpoint = "https://" + r.URL.Host
-	} else {
-		// If the request came with a non-HTTPS endpoint, use the default hostname, with HTTPS
-		endpoint = "https://" + s.tsnetServer.Hostname()
-	}
+	// The tsnet FQDN is the MagicDNS name that Funnel exposes publicly, so the same hostname works for both tailnet-only and Funnel deployments
+	endpoint := "https://" + s.tsnetServer.Hostname()
 
 	w.Header().Set(httpserver.HeaderContentType, httpserver.ContentTypeJson)
 	httpserver.RespondWithJSON(w, r, oidcConfiguration{
@@ -159,6 +152,16 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 		TokenEndpoint: endpoint + "/token",
 		JWKSURI:       endpoint + "/.well-known/jwks.json",
 	})
+}
+
+// Clears identity fields on the resolved whois that are not meaningful for the given Tailscale identity
+// On tagged nodes the upstream UserLoginName carries the tag actor's email rather than a workload-owning user
+// Blanking it here prevents relying parties from binding trust policies on a value that does not actually identify the workload (the node's tags are still emitted under `tsiam.tags`)
+func sanitizeWhois(whois tsnetserver.TailscaleWhoIs) tsnetserver.TailscaleWhoIs {
+	if len(whois.Tags) > 0 {
+		whois.UserLoginName = ""
+	}
+	return whois
 }
 
 // Returns the value to use for the JWT `sub` claim, based on the configured subject-claim source
