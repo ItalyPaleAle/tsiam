@@ -1,7 +1,10 @@
 package tsnet
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"log/slog"
 	"slices"
 
 	"github.com/italypaleale/go-kit/tsnetserver"
@@ -28,7 +31,8 @@ type TsiamCapability struct {
 // MatchAudienceCapability finds the capability grant that authorizes the requested audience for this caller
 // Returns the matched grant (zero value when none) and whether the caller is authorized to request the audience
 // When allowWithoutCapability is true and the caller has no tsiam capability at all, returns (zero, true)
-func MatchAudienceCapability(whois *tsnetserver.TailscaleWhoIs, audience string, allowWithoutCapability bool) (TsiamCapability, bool) {
+// Malformed grants (invalid JSON, unknown fields) are logged at WARN level keyed by NodeID and skipped, so operator typos surface in the logs instead of silently denying access
+func MatchAudienceCapability(ctx context.Context, whois *tsnetserver.TailscaleWhoIs, audience string, allowWithoutCapability bool) (TsiamCapability, bool) {
 	// Check if the caller has the capability
 	capValues, ok := whois.CapMap[AudienceCapability]
 	if !ok {
@@ -38,12 +42,19 @@ func MatchAudienceCapability(whois *tsnetserver.TailscaleWhoIs, audience string,
 
 	// Caller has the capability, look for one that lists the requested audience
 	var err error
-	for _, capValue := range capValues {
+	for i, capValue := range capValues {
 		// capValue is a RawMessage (JSON-encoded object)
-		// Try to unmarshal it as a TsiamCapability object
+		// DisallowUnknownFields rejects typos instead of silently producing an empty allowedAudiences list
+		dec := json.NewDecoder(bytes.NewReader([]byte(capValue)))
+		dec.DisallowUnknownFields()
 		var tsiamCap TsiamCapability
-		err = json.Unmarshal([]byte(capValue), &tsiamCap)
+		err = dec.Decode(&tsiamCap)
 		if err != nil {
+			slog.WarnContext(ctx, "Skipping malformed tsiam capability grant",
+				slog.String("nodeId", whois.NodeID),
+				slog.Int("capIndex", i),
+				slog.Any("error", err),
+			)
 			continue
 		}
 		// Check if the audience is in the allowedAudiences list
@@ -56,7 +67,7 @@ func MatchAudienceCapability(whois *tsnetserver.TailscaleWhoIs, audience string,
 }
 
 // IsAudiencePermittedForCaller checks if the caller has permission to request this audience
-func IsAudiencePermittedForCaller(whois *tsnetserver.TailscaleWhoIs, audience string, allowWithoutCapability bool) bool {
-	_, ok := MatchAudienceCapability(whois, audience, allowWithoutCapability)
+func IsAudiencePermittedForCaller(ctx context.Context, whois *tsnetserver.TailscaleWhoIs, audience string, allowWithoutCapability bool) bool {
+	_, ok := MatchAudienceCapability(ctx, whois, audience, allowWithoutCapability)
 	return ok
 }

@@ -69,7 +69,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check per-caller authorization via Tailscale capabilities
-	matchedCap, permitted := tsnet.MatchAudienceCapability(&whois, audience, cfg.Tokens.AllowEmptyNodeCapability)
+	matchedCap, permitted := tsnet.MatchAudienceCapability(r.Context(), &whois, audience, cfg.Tokens.AllowEmptyNodeCapability)
 	if !permitted {
 		slog.WarnContext(r.Context(), "Caller not permitted to request this audience",
 			slog.String("nodeId", whois.NodeID),

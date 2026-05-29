@@ -108,6 +108,18 @@ func TestIsAudiencePermittedForCaller(t *testing.T) {
 			expected:               false,
 		},
 		{
+			// Typo in field name should be rejected by DisallowUnknownFields rather than silently producing an empty allowedAudiences list
+			name:     "Capability with typo in field name is rejected, not silently empty",
+			audience: "https://api.example.com",
+			capMap: tailcfg.PeerCapMap{
+				AudienceCapability: []tailcfg.RawMessage{
+					`{"allowedAudience":["https://api.example.com"]}`,
+				},
+			},
+			allowWithoutCapability: false,
+			expected:               false,
+		},
+		{
 			name:     "Multiple audiences in capability",
 			audience: "https://service2.example.com",
 			capMap: tailcfg.PeerCapMap{
@@ -161,7 +173,7 @@ func TestIsAudiencePermittedForCaller(t *testing.T) {
 				CapMap: tt.capMap,
 			}
 
-			result := IsAudiencePermittedForCaller(&whois, tt.audience, tt.allowWithoutCapability)
+			result := IsAudiencePermittedForCaller(t.Context(), &whois, tt.audience, tt.allowWithoutCapability)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -234,7 +246,7 @@ func TestMatchAudienceCapability(t *testing.T) {
 				CapMap: tt.capMap,
 			}
 
-			matched, ok := MatchAudienceCapability(&whois, audience, tt.allowWithoutCapability)
+			matched, ok := MatchAudienceCapability(t.Context(), &whois, audience, tt.allowWithoutCapability)
 			assert.Equal(t, tt.expectMatched, ok)
 			assert.Equal(t, tt.expectSubject, matched.Subject)
 		})
