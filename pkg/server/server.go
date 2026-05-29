@@ -88,7 +88,7 @@ func (s *Server) initAppServer() {
 	mux.HandleFunc("GET /.well-known/jwks.json", s.handleGetJWKS)
 	mux.HandleFunc("GET /.well-known/openid-configuration", s.handleGetOpenIDConfiguration)
 	mux.HandleFunc("GET /healthz", httpserver.UseFunc(s.handleGetHealthz, requireNotFunneledRequest))
-	mux.HandleFunc("GET /", s.handleGetRoot)
+	mux.HandleFunc("GET /", httpserver.UseFunc(s.handleGetRoot, requireNotFunneledRequest))
 
 	filters := []sloghttp.Filter{
 		sloghttp.IgnoreStatus(401, 404),
