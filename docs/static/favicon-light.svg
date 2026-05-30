@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Tsiam dark favicon</title>
+  <desc id="desc">A transparent favicon with a rotated dark pixel-dot key</desc>
+  <defs>
+    <style>.dot{fill:#101214}.soft{fill:#5c636a}</style>
+  </defs>
+  <g transform="rotate(45 64 64)">
+    <circle class="dot" cx="42" cy="42" r="4.4"/>
+    <circle class="soft" cx="28" cy="50" r="4.4"/>
+    <circle class="dot" cx="56" cy="50" r="4.4"/>
+    <circle class="dot" cx="22" cy="64" r="4.4"/>
+    <circle class="dot" cx="62" cy="64" r="4.4"/>
+    <circle class="soft" cx="28" cy="78" r="4.4"/>
+    <circle class="dot" cx="56" cy="78" r="4.4"/>
+    <circle class="dot" cx="42" cy="86" r="4.4"/>
+    <circle class="dot" cx="74" cy="64" r="4.4"/>
+    <circle class="dot" cx="86" cy="64" r="4.4"/>
+    <circle class="soft" cx="98" cy="64" r="4.4"/>
+    <circle class="dot" cx="110" cy="64" r="4.4"/>
+    <circle class="dot" cx="86" cy="52" r="4.4"/>
+    <circle class="dot" cx="98" cy="76" r="4.4"/>
+    <circle class="soft" cx="110" cy="76" r="4.4"/>
+  </g>
+</svg>

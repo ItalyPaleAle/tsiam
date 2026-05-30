@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Tsiam app icon for dark backgrounds</title>
+  <desc id="desc">A light rounded square app icon with a rotated dark pixel-dot key</desc>
+  <defs>
+    <style>.box{fill:#f7f7f4}.edge{fill:none;stroke:#d6d6d0;stroke-width:1.5}.dot{fill:#101214}.soft{fill:#5c636a}</style>
+  </defs>
+  <rect class="box" x="8" y="8" width="112" height="112" rx="16"/>
+  <rect class="edge" x="8.75" y="8.75" width="110.5" height="110.5" rx="15.25"/>
+  <g transform="rotate(45 64 64)">
+    <circle class="dot" cx="42" cy="42" r="4.4"/>
+    <circle class="soft" cx="28" cy="50" r="4.4"/>
+    <circle class="dot" cx="56" cy="50" r="4.4"/>
+    <circle class="dot" cx="22" cy="64" r="4.4"/>
+    <circle class="dot" cx="62" cy="64" r="4.4"/>
+    <circle class="soft" cx="28" cy="78" r="4.4"/>
+    <circle class="dot" cx="56" cy="78" r="4.4"/>
+    <circle class="dot" cx="42" cy="86" r="4.4"/>
+    <circle class="dot" cx="74" cy="64" r="4.4"/>
+    <circle class="dot" cx="86" cy="64" r="4.4"/>
+    <circle class="soft" cx="98" cy="64" r="4.4"/>
+    <circle class="dot" cx="110" cy="64" r="4.4"/>
+    <circle class="dot" cx="86" cy="52" r="4.4"/>
+    <circle class="dot" cx="98" cy="76" r="4.4"/>
+    <circle class="soft" cx="110" cy="76" r="4.4"/>
+  </g>
+</svg>
