@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v4/jwk"
 )
 
 var errKeyNoExist = errors.New("key not found")

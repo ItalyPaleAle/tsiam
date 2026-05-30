@@ -1,5 +1,3 @@
-//go:build unit
-
 package server
 
 import (
@@ -12,8 +10,8 @@ import (
 	"time"
 
 	"github.com/italypaleale/go-kit/tsnetserver"
-	"github.com/lestrrat-go/jwx/v3/jwa"
-	"github.com/lestrrat-go/jwx/v3/jwt"
+	"github.com/lestrrat-go/jwx/v4/jwa"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tailscale.com/tailcfg"
@@ -189,7 +187,6 @@ func TestHandlePostToken_Success(t *testing.T) {
 	// Decode the token and verify the claims wired through correctly
 	parsed, err := jwt.Parse([]byte(resp.AccessToken),
 		jwt.WithKey(mustAlg(t, s), s.signingKey),
-
 	)
 	require.NoError(t, err)
 
@@ -259,7 +256,6 @@ func TestHandlePostToken_SubjectClaimSources(t *testing.T) {
 
 			parsed, err := jwt.Parse([]byte(resp.AccessToken),
 				jwt.WithKey(mustAlg(t, s), s.signingKey),
-
 			)
 			require.NoError(t, err)
 
@@ -294,8 +290,8 @@ func TestHandlePostToken_TaggedNodeBlanksUserLoginInClaim(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	var claim map[string]any
-	require.NoError(t, parsed.Get("italypaleale.me/tsiam", &claim))
+	claim, err := jwt.Get[map[string]any](parsed, "italypaleale.me/tsiam")
+	require.NoError(t, err)
 	// The TailscaleWhoIs JSON tags use omitempty, so an empty UserLoginName is dropped from the encoded claim rather than emitted as ""
 	// Either form (missing key, or empty-string value) is acceptable evidence of the sanitization fix
 	v, present := claim["userLoginName"]

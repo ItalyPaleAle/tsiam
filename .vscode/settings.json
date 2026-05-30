@@ -1,3 +1,9 @@
 {
-    "go.buildTags": "integration"
+    "go.buildTags": "integration unit",
+    "go.testEnvVars": {
+        "GOEXPERIMENT": "jsonv2",
+    },
+    "go.toolsEnvVars": {
+        "GOEXPERIMENT": "jsonv2",
+    }
 }

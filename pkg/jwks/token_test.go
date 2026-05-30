@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/italypaleale/go-kit/tsnetserver"
-	"github.com/lestrrat-go/jwx/v3/jwk"
-	"github.com/lestrrat-go/jwx/v3/jwt"
+	"github.com/lestrrat-go/jwx/v4/jwk"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +20,7 @@ func TestNewToken(t *testing.T) {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 
-	key, err := jwk.Import(privateKey)
+	key, err := jwk.Import[jwk.Key](privateKey)
 	require.NoError(t, err)
 	err = key.Set(jwk.AlgorithmKey, "ES256")
 	require.NoError(t, err)
@@ -234,7 +234,7 @@ func TestNewToken(t *testing.T) {
 
 		// Extract the tsiam claim
 		var tsiamMap map[string]any
-		err = parsedToken.Get("italypaleale.me/tsiam", &tsiamMap)
+		tsiamMap, err = jwt.Get[map[string]any](parsedToken, "italypaleale.me/tsiam")
 		require.NoError(t, err, "tsiam claim should be present")
 
 		assert.Equal(t, "test-node-id", tsiamMap["nodeId"])
@@ -273,7 +273,7 @@ func TestNewToken(t *testing.T) {
 
 	t.Run("Key without algorithm fails", func(t *testing.T) {
 		// Create a key without algorithm
-		badKey, err := jwk.Import(privateKey)
+		badKey, err := jwk.Import[jwk.Key](privateKey)
 		require.NoError(t, err)
 
 		_, err = NewToken(badKey, TokenRequest{

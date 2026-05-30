@@ -19,6 +19,9 @@ jobs:
     permissions:
       contents: read
 
+    env:
+      GOEXPERIMENT: jsonv2
+
     steps:
       - name: Check out code
         uses: actions/checkout@v6
@@ -51,6 +54,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
+
+    env:
+      GOEXPERIMENT: jsonv2
 
     steps:
       - name: Check out code

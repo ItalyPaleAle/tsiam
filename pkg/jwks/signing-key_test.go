@@ -6,8 +6,8 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/lestrrat-go/jwx/v3/jwa"
-	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v4/jwa"
+	"github.com/lestrrat-go/jwx/v4/jwk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,8 +21,8 @@ func TestNewSigningKey(t *testing.T) {
 		assert.Equal(t, jwa.RSA(), key.KeyType())
 		assertAlgorithm(t, key, jwa.RS256())
 
-		var rawKey rsa.PrivateKey
-		require.NoError(t, jwk.Export(key, &rawKey))
+		rawKey, err := jwk.Export[*rsa.PrivateKey](key)
+		require.NoError(t, err)
 		assert.Equal(t, rsaKeySize, rawKey.N.BitLen(), "RSA modulus should be %d bits", rsaKeySize)
 	})
 
@@ -60,8 +60,8 @@ func TestNewSigningKey(t *testing.T) {
 		assert.Equal(t, jwa.OKP(), key.KeyType())
 		assertAlgorithm(t, key, jwa.EdDSA())
 
-		var rawKey ed25519.PrivateKey
-		require.NoError(t, jwk.Export(key, &rawKey))
+		rawKey, err := jwk.Export[ed25519.PrivateKey](key)
+		require.NoError(t, err)
 		assert.Len(t, rawKey, ed25519.PrivateKeySize)
 	})
 
@@ -150,7 +150,7 @@ func assertAlgorithm(t *testing.T, key jwk.Key, want jwa.SignatureAlgorithm) {
 
 func assertCurve(t *testing.T, key jwk.Key, want jwa.EllipticCurveAlgorithm) {
 	t.Helper()
-	var crv jwa.EllipticCurveAlgorithm
-	require.NoError(t, key.Get(jwk.ECDSACrvKey, &crv))
+	crv, err := jwk.Get[jwa.EllipticCurveAlgorithm](key, jwk.ECDSACrvKey)
+	require.NoError(t, err)
 	assert.Equal(t, want, crv)
 }

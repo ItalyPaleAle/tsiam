@@ -1,3 +1,5 @@
+export GOEXPERIMENT := jsonv2
+
 .PHONY: test
 test:
 	go test -tags unit ./...

@@ -9,8 +9,8 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/lestrrat-go/jwx/v3/jwa"
-	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v4/jwa"
+	"github.com/lestrrat-go/jwx/v4/jwk"
 )
 
 // RSA key size in bits
@@ -30,7 +30,7 @@ func NewSigningKey(alg string, curve string) (jwk.Key, error) {
 	}
 
 	// Create JWK from the raw key
-	signingKey, err := jwk.Import(rawKey)
+	signingKey, err := jwk.Import[jwk.Key](rawKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to import signing key: %w", err)
 	}

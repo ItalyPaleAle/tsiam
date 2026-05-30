@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/italypaleale/go-kit/tsnetserver"
-	"github.com/lestrrat-go/jwx/v3/jwk"
-	"github.com/lestrrat-go/jwx/v3/jwt"
+	"github.com/lestrrat-go/jwx/v4/jwk"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 
 	"github.com/italypaleale/tsiam/pkg/buildinfo"
 )

@@ -13,7 +13,7 @@ import (
 
 	httpserver "github.com/italypaleale/go-kit/httpserver"
 	"github.com/italypaleale/go-kit/tsnetserver"
-	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v4/jwk"
 	sloghttp "github.com/samber/slog-http"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 

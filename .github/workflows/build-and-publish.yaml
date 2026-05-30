@@ -16,6 +16,11 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    env:
+      GOEXPERIMENT: 'jsonv2'
+      CGO_ENABLED: '0'
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -83,8 +88,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build for all platforms
-        env:
-          CGO_ENABLED: "0"
         run: |
           mkdir -p .bin .out
 

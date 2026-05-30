@@ -22,6 +22,10 @@ if ok { ... }
 
 If you modify `pkg/config.Config` or any struct referenced from it, always run `make gen-config` before finishing the task.
 
+## Running tests
+
+When compiling or testing code that imports use Go 1.26+ and set `GOEXPERIMENT=jsonv2`.
+
 ## Comments
 
 - One sentence per line; do not wrap to a max line length
