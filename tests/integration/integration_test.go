@@ -122,8 +122,7 @@ func TestTokenEndpoint(t *testing.T) {
 		assert.True(t, nbf.Before(time.Now().Add(time.Minute)), "nbf should be recent")
 
 		// Verify custom tsiam claim
-		var tsiamClaim map[string]any
-		err = parsedToken.Get("italypaleale.me/tsiam", &tsiamClaim)
+		tsiamClaim, err := jwt.Get[map[string]any](parsedToken, "italypaleale.me/tsiam")
 		require.NoError(t, err, "italypaleale.me/tsiam claim should be present")
 
 		assert.NotEmpty(t, tsiamClaim["nodeId"], "nodeId should be present in tsiam claim")
