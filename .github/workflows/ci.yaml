@@ -37,6 +37,11 @@ jobs:
           go install github.com/fchimpan/gomod-age@09005169a4792ad1a4824e1fc6d85785d91cea36
           gomod-age
 
+      - name: Check diff
+        run: |
+          echo "If this fails, please run 'make gen-config' to fix"
+          make check-config-diff
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
