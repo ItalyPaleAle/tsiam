@@ -1,37 +1,56 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
-# Go version to use for building
-GO_VERSION="1.26.2"
+set -euxo pipefail
 
-set -e
+GO_VERSION="1.26.3"
 
-# Detect the OS and architecture
-OS="$(uname -s)"
-ARCH="$(uname -m)"
-case "$OS" in
-  Linux)  GOOS="linux"  ;;
-  Darwin) GOOS="darwin" ;;
-  *)      echo "Unsupported OS: $OS"; exit 1 ;;
-esac
-case "$ARCH" in
-  x86_64)           GOARCH="amd64"  ;;
-  aarch64|arm64)    GOARCH="arm64"  ;;
-  *)                echo "Unsupported architecture: $ARCH"; exit 1 ;;
-esac
+ensure_go() {
+    if command -v go >/dev/null 2>&1; then
+        return 0
+    fi
 
-# Check if go is installed
-if ! command -v go &>/dev/null; then
-  echo "Go not found; bootstrapping Go ${GO_VERSION}..."
-  CACHE_DIR=".cache/go-toolchain"
-  TARBALL="go${GO_VERSION}.${GOOS}-${GOARCH}.tar.gz"
-  mkdir -p "${CACHE_DIR}"
-  curl -fsSL "https://dl.google.com/go/${TARBALL}" -o "${CACHE_DIR}/${TARBALL}"
-  tar -C "${CACHE_DIR}" -xzf "${CACHE_DIR}/${TARBALL}"
-  export PATH="${CACHE_DIR}/go/bin:$PATH"
-fi
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    arch="$(uname -m)"
 
-export GOCACHE=".cache/go"
-export NODE_ENV=production
-echo -e "\033[0;32mBuilding with Hugo...\033[0m"
+    case "$arch" in
+        x86_64|amd64)
+            arch="amd64"
+            ;;
+        arm64|aarch64)
+            arch="arm64"
+            ;;
+        *)
+            echo "Unsupported architecture for Go bootstrap: $arch" >&2
+            exit 1
+            ;;
+    esac
+
+    install_dir="$PWD/.cache/go-toolchain/go${GO_VERSION}"
+    go_bin="$install_dir/go/bin/go"
+
+    if [ ! -x "$go_bin" ]; then
+        archive="go${GO_VERSION}.${os}-${arch}.tar.gz"
+        url="https://go.dev/dl/$archive"
+        tmp_dir="$PWD/.cache/go-toolchain/tmp"
+
+        echo "\033[0;1mInstalling Go $GO_VERSION for Hugo modules\033[0;0m"
+        rm -rf "$tmp_dir" "$install_dir"
+        mkdir -p "$tmp_dir" "$install_dir"
+        curl -fsSL "$url" -o "$tmp_dir/$archive"
+        tar -C "$install_dir" -xzf "$tmp_dir/$archive"
+        rm -rf "$tmp_dir"
+    fi
+
+    export PATH="$install_dir/go/bin:$PATH"
+}
+
+echo "\033[0;1mBuilding for environment: \033[0;1;35mproduction\033[0;0m"
+
+export GOCACHE="$PWD/.cache/go-build"
+
+ensure_go
+
+echo "\033[0;1mGo version\033[0;0m"
+go version
 
 go run github.com/italypaleale/hugo-assets/cmd/vercel-docs-build
