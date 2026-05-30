@@ -9,6 +9,12 @@ import (
 
 var errKeyNoExist = errors.New("key not found")
 
+// keyID returns the key's `kid` for use in log fields, or an empty string if unset
+func keyID(key jwk.Key) string {
+	kid, _ := key.KeyID()
+	return kid
+}
+
 // KeyStorage is an interface for persisting signing keys
 type KeyStorage interface {
 	// Load loads the signing key from storage

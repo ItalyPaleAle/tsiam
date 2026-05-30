@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -79,6 +80,7 @@ func (a *AzureKeyVaultSecretStorage) Load(ctx context.Context) (jwk.Key, error) 
 		var respErr *azcore.ResponseError
 		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
 			// Secret doesn't exist yet
+			slog.DebugContext(ctx, "No signing key found in Azure Key Vault secret", slog.String("secretName", a.secretName))
 			return nil, errKeyNoExist
 		}
 		return nil, fmt.Errorf("failed to get secret from Azure Key Vault: %w", err)
@@ -93,6 +95,11 @@ func (a *AzureKeyVaultSecretStorage) Load(ctx context.Context) (jwk.Key, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse key from secret: %w", err)
 	}
+
+	slog.InfoContext(ctx, "Loaded signing key from Azure Key Vault secret",
+		slog.String("secretName", a.secretName),
+		slog.String("keyId", keyID(key)),
+	)
 
 	return key, nil
 }
@@ -115,6 +122,11 @@ func (a *AzureKeyVaultSecretStorage) Store(ctx context.Context, key jwk.Key) err
 	if err != nil {
 		return fmt.Errorf("failed to set secret in Azure Key Vault: %w", err)
 	}
+
+	slog.InfoContext(ctx, "Stored signing key to Azure Key Vault secret",
+		slog.String("secretName", a.secretName),
+		slog.String("keyId", keyID(key)),
+	)
 
 	return nil
 }

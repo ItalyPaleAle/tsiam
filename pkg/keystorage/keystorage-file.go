@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -41,6 +42,7 @@ func (f *FileKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 	data, err := os.ReadFile(f.path)
 	if errors.Is(err, fs.ErrNotExist) {
 		// Key doesn't exist yet
+		slog.DebugContext(ctx, "No signing key found in file storage", slog.String("path", f.path))
 		return nil, errKeyNoExist
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to read key file: %w", err)
@@ -48,6 +50,7 @@ func (f *FileKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 
 	// A zero-byte file is treated as missing rather than a parse error
 	if len(data) == 0 {
+		slog.DebugContext(ctx, "Ignoring empty signing key file in file storage", slog.String("path", f.path))
 		return nil, errKeyNoExist
 	}
 
@@ -55,6 +58,11 @@ func (f *FileKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse key: %w", err)
 	}
+
+	slog.InfoContext(ctx, "Loaded signing key from file storage",
+		slog.String("path", f.path),
+		slog.String("keyId", keyID(key)),
+	)
 
 	return key, nil
 }
@@ -71,6 +79,11 @@ func (f *FileKeyStorage) Store(ctx context.Context, key jwk.Key) error {
 	if err != nil {
 		return fmt.Errorf("failed to write key file: %w", err)
 	}
+
+	slog.InfoContext(ctx, "Stored signing key to file storage",
+		slog.String("path", f.path),
+		slog.String("keyId", keyID(key)),
+	)
 
 	return nil
 }

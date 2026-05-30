@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -116,6 +117,7 @@ func (a *AzureKeyVaultKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 	wrappedData, err := os.ReadFile(a.storagePath)
 	if errors.Is(err, fs.ErrNotExist) {
 		// Key doesn't exist yet
+		slog.DebugContext(ctx, "No wrapped signing key found in Azure Key Vault key storage", slog.String("path", a.storagePath))
 		return nil, errKeyNoExist
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to read wrapped key file: %w", err)
@@ -123,6 +125,7 @@ func (a *AzureKeyVaultKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 
 	// A zero-byte file is treated as missing rather than an unwrap error
 	if len(wrappedData) == 0 {
+		slog.DebugContext(ctx, "Ignoring empty wrapped signing key file in Azure Key Vault key storage", slog.String("path", a.storagePath))
 		return nil, errKeyNoExist
 	}
 
@@ -147,6 +150,12 @@ func (a *AzureKeyVaultKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse unwrapped key: %w", err)
 	}
+
+	slog.InfoContext(ctx, "Loaded signing key from Azure Key Vault key storage",
+		slog.String("keyName", a.keyName),
+		slog.String("path", a.storagePath),
+		slog.String("keyId", keyID(key)),
+	)
 
 	return key, nil
 }
@@ -180,6 +189,12 @@ func (a *AzureKeyVaultKeyStorage) Store(ctx context.Context, key jwk.Key) error 
 	if err != nil {
 		return fmt.Errorf("failed to write wrapped key file: %w", err)
 	}
+
+	slog.InfoContext(ctx, "Stored signing key to Azure Key Vault key storage",
+		slog.String("keyName", a.keyName),
+		slog.String("path", a.storagePath),
+		slog.String("keyId", keyID(key)),
+	)
 
 	return nil
 }
