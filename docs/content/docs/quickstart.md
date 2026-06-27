@@ -19,9 +19,11 @@ Create a `config.yaml` file:
 tsnet:
   # Hostname for this node on your Tailnet
   hostname: tsiam
-  # Optional: Auth key for automatic authentication with Tailscale (used on first startup only)
+  # Optional: Auth key for automatic authentication with Tailscale
+  # (used on first startup only)
   #authKey: tskey-auth-xxx
-  # Optional: Advertise tags for ACLs (often needed for OAuth2 / federation-based node auth)
+  # Optional: Advertise tags for ACLs
+  # (often needed for OAuth2 / federation-based node auth)
   #advertiseTags: ["tag:tsiam"]
   # Enable Tailscale Funnel for public OIDC endpoints
   funnel: false
@@ -36,7 +38,8 @@ tokens:
 
 # Signing key configuration
 signingKey:
-  # Storage backend: "file", "memory", "AzureKeyVaultKeys", or "AzureKeyVaultSecrets"
+  # Storage backend:
+  # "file", "memory", "AzureKeyVaultKeys", or "AzureKeyVaultSecrets"
   storage: file
   # Signing algorithm: RS256, ES256, ES384, ES512, or EdDSA
   algorithm: ES256
