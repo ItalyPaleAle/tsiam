@@ -1,0 +1,18 @@
+{
+  "baseURL": "https://tsiam.italypaleale.me/",
+  "title": "tsiam",
+  "locale": "en-us",
+  "description": "Workload Identity over Tailscale",
+  "plausibleAnalytics": true,
+  "github": {
+    "url": "https://github.com/italypaleale/tsiam",
+    "repo": "https://github.com/italypaleale/tsiam",
+    "branch": "main"
+  },
+  "theme": {
+    "scheme": "slate",
+    "iconLight": "icon-light.svg",
+    "iconDark": "icon-dark.svg",
+    "favicon": "favicon-light.svg"
+  }
+}
