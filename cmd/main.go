@@ -160,11 +160,13 @@ func (s *shutdownManager) Add(fn servicerunner.Service) {
 }
 
 func (s *shutdownManager) Run(log *slog.Logger) {
+	// Cleanup functions are one-shot and must each run to completion independently, so we set WaitAll to true
+	sr := servicerunner.NewServiceRunner(s.fns...)
+	sr.WaitAll = true
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
-	err := servicerunner.
-		NewServiceRunner(s.fns...).
-		Run(shutdownCtx)
+	err := sr.Run(shutdownCtx)
 	if err != nil {
 		log.Error("Error shutting down services", slog.Any("error", err))
 	}

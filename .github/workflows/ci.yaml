@@ -20,7 +20,7 @@ jobs:
     permissions:
       contents: read
     env:
-      GOLANGCI_LINT_VERSION: "v2.11.4"
+      GOLANGCI_LINT_VERSION: "v2.12.2"
       GOEXPERIMENT: jsonv2
     steps:
 
@@ -34,8 +34,7 @@ jobs:
 
       - name: Check Go dependency minimum age
         run: |
-          go install github.com/fchimpan/gomod-age@09005169a4792ad1a4824e1fc6d85785d91cea36
-          gomod-age
+          go tool gomod-age
 
       - name: Check diff
         run: |
