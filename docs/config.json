@@ -14,5 +14,9 @@
     "iconLight": "icon-light.svg",
     "iconDark": "icon-dark.svg",
     "favicon": "favicon-light.svg"
+  },
+  "robots": {
+    "llmsTXT": true,
+    "disallow": []
   }
 }
