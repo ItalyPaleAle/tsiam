@@ -270,9 +270,12 @@ func TestHandleGetOpenIDConfiguration(t *testing.T) {
 
 	//nolint:tagliatelle
 	var doc struct {
-		Issuer        string `json:"issuer"`
-		TokenEndpoint string `json:"token_endpoint"`
-		JWKSURI       string `json:"jwks_uri"`
+		Issuer                           string   `json:"issuer"`
+		TokenEndpoint                    string   `json:"token_endpoint"`
+		JWKSURI                          string   `json:"jwks_uri"`
+		ResponseTypesSupported           []string `json:"response_types_supported"`
+		SubjectTypesSupported            []string `json:"subject_types_supported"`
+		IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
 	}
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &doc))
 
@@ -280,4 +283,7 @@ func TestHandleGetOpenIDConfiguration(t *testing.T) {
 	assert.Equal(t, expectedBase, doc.Issuer)
 	assert.Equal(t, expectedBase+"/token", doc.TokenEndpoint)
 	assert.Equal(t, expectedBase+"/.well-known/jwks.json", doc.JWKSURI)
+	assert.Equal(t, []string{"id_token"}, doc.ResponseTypesSupported)
+	assert.Equal(t, []string{"public"}, doc.SubjectTypesSupported)
+	assert.Equal(t, []string{"ES256"}, doc.IDTokenSigningAlgValuesSupported)
 }
