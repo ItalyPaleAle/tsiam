@@ -7,7 +7,8 @@
   "github": {
     "url": "https://github.com/italypaleale/tsiam",
     "repo": "https://github.com/italypaleale/tsiam",
-    "branch": "main"
+    "branch": "main",
+    "path": "docs"
   },
   "theme": {
     "scheme": "slate",
