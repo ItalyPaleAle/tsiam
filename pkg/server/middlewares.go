@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -35,14 +36,22 @@ func rejectOversizedRequest(maxSize int64) httpserver.Middleware {
 }
 
 // Returns a middleware that limits each caller to rpm requests per minute, keyed on the caller's IP address (from r.RemoteAddr)
-// For tsnet-served requests the RemoteAddr is the caller's Tailscale IP, so each tailnet node is throttled independently
 func tokenRateLimit(rpm int) httpserver.MiddlewareFunc {
 	if rpm <= 0 {
 		// Disable the middleware
 		return func(next http.HandlerFunc) http.HandlerFunc { return next }
 	}
 
-	rl := httprate.LimitByIP(rpm, time.Minute)
+	keyByRemoteAddr := func(r *http.Request) (string, error) {
+		// This server is only ever reached directly through tsnet (see requireNotFunneledRequest and the tsnet listener setup), never behind a reverse proxy or load balancer, so r.RemoteAddr is always the caller's real Tailscale IP and is trusted here
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
+		return httprate.CanonicalizeIP(ip), nil
+	}
+
+	rl := httprate.LimitBy(rpm, time.Minute, keyByRemoteAddr)
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return rl(next).ServeHTTP
 	}
