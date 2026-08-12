@@ -137,13 +137,19 @@ func (s *Server) handleGetJWKS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Request) {
-	signingAlgorithm, _ := s.signingKey.Algorithm()
+	signingAlgorithm, hasSigningAlgorithm := s.signingKey.Algorithm()
+	if !hasSigningAlgorithm {
+		slog.ErrorContext(r.Context(), "Signing key does not contain an algorithm")
+		errInternal.WriteResponse(w, r)
+		return
+	}
 
 	//nolint:tagliatelle
 	type oidcConfiguration struct {
 		Issuer                           string   `json:"issuer"`
 		TokenEndpoint                    string   `json:"token_endpoint"`
 		JWKSURI                          string   `json:"jwks_uri"`
+		ClaimsSupported                  []string `json:"claims_supported"`
 		ResponseTypesSupported           []string `json:"response_types_supported"`
 		SubjectTypesSupported            []string `json:"subject_types_supported"`
 		IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
@@ -157,6 +163,7 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 		Issuer:                           s.tokenIssuer(),
 		TokenEndpoint:                    endpoint + "/token",
 		JWKSURI:                          endpoint + "/.well-known/jwks.json",
+		ClaimsSupported:                  []string{"aud", "iat", "iss", "sub"},
 		ResponseTypesSupported:           []string{"id_token"},
 		SubjectTypesSupported:            []string{"public"},
 		IDTokenSigningAlgValuesSupported: []string{signingAlgorithm.String()},

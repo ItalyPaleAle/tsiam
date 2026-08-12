@@ -62,6 +62,14 @@ type NewServerOpts struct {
 
 // NewServer creates a new Server object and initializes it
 func NewServer(opts NewServerOpts) (s *Server, err error) {
+	if opts.SigningKey == nil {
+		return nil, errors.New("signing key is required")
+	}
+	_, ok := opts.SigningKey.Algorithm()
+	if !ok {
+		return nil, errors.New("signing key does not contain an algorithm")
+	}
+
 	s = &Server{
 		appMetrics:  opts.AppMetrics,
 		tsnetServer: opts.TSNetServer,

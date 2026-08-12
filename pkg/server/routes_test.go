@@ -218,9 +218,9 @@ const discoveryTestHostname = "tsiam.test-tailnet.ts.net"
 
 // Builds a Server with a fresh signing key and a pre-computed JWKS for discovery tests
 // Hostname is fixed so the OIDC URLs are predictable; whoIs is unused by these handlers
-func newDiscoveryServer(t *testing.T) *Server {
+func newDiscoveryServer(t *testing.T, algorithm string) *Server {
 	t.Helper()
-	signingKey, err := jwks.NewSigningKey("ES256", "")
+	signingKey, err := jwks.NewSigningKey(algorithm, "")
 	require.NoError(t, err)
 	publicJwks, err := jwks.GetPublicJWKSAsJSON(signingKey)
 	require.NoError(t, err)
@@ -232,7 +232,7 @@ func newDiscoveryServer(t *testing.T) *Server {
 }
 
 func TestHandleGetJWKS(t *testing.T) {
-	s := newDiscoveryServer(t)
+	s := newDiscoveryServer(t, "ES256")
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/jwks.json", nil)
 	rr := httptest.NewRecorder()
@@ -259,31 +259,61 @@ func TestHandleGetJWKS(t *testing.T) {
 }
 
 func TestHandleGetOpenIDConfiguration(t *testing.T) {
-	s := newDiscoveryServer(t)
+	algorithms := []string{"RS256", "ES256", "ES384", "ES512", "EdDSA"}
+	for _, algorithm := range algorithms {
+		t.Run(algorithm, func(t *testing.T) {
+			s := newDiscoveryServer(t, algorithm)
+
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/openid-configuration", nil)
+			rr := httptest.NewRecorder()
+			s.handleGetOpenIDConfiguration(rr, req)
+
+			require.Equal(t, http.StatusOK, rr.Code)
+			assert.Contains(t, rr.Header().Get(httpserver.HeaderContentType), "application/json")
+
+			//nolint:tagliatelle
+			var doc struct {
+				Issuer                           string   `json:"issuer"`
+				TokenEndpoint                    string   `json:"token_endpoint"`
+				JWKSURI                          string   `json:"jwks_uri"`
+				ClaimsSupported                  []string `json:"claims_supported"`
+				ResponseTypesSupported           []string `json:"response_types_supported"`
+				SubjectTypesSupported            []string `json:"subject_types_supported"`
+				IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
+			}
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &doc))
+
+			expectedBase := "https://" + discoveryTestHostname
+			assert.Equal(t, expectedBase, doc.Issuer)
+			assert.Equal(t, expectedBase+"/token", doc.TokenEndpoint)
+			assert.Equal(t, expectedBase+"/.well-known/jwks.json", doc.JWKSURI)
+			assert.Equal(t, []string{"aud", "iat", "iss", "sub"}, doc.ClaimsSupported)
+			assert.Equal(t, []string{"id_token"}, doc.ResponseTypesSupported)
+			assert.Equal(t, []string{"public"}, doc.SubjectTypesSupported)
+			assert.Equal(t, []string{algorithm}, doc.IDTokenSigningAlgValuesSupported)
+		})
+	}
+}
+
+func TestHandleGetOpenIDConfigurationWithoutSigningAlgorithm(t *testing.T) {
+	s := newDiscoveryServer(t, "ES256")
+	err := s.signingKey.Remove(jwk.AlgorithmKey)
+	require.NoError(t, err)
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/openid-configuration", nil)
 	rr := httptest.NewRecorder()
 	s.handleGetOpenIDConfiguration(rr, req)
 
-	require.Equal(t, http.StatusOK, rr.Code)
-	assert.Contains(t, rr.Header().Get(httpserver.HeaderContentType), "application/json")
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+}
 
-	//nolint:tagliatelle
-	var doc struct {
-		Issuer                           string   `json:"issuer"`
-		TokenEndpoint                    string   `json:"token_endpoint"`
-		JWKSURI                          string   `json:"jwks_uri"`
-		ResponseTypesSupported           []string `json:"response_types_supported"`
-		SubjectTypesSupported            []string `json:"subject_types_supported"`
-		IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
-	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &doc))
+func TestNewServerRejectsSigningKeyWithoutAlgorithm(t *testing.T) {
+	signingKey, err := jwks.NewSigningKey("ES256", "")
+	require.NoError(t, err)
+	err = signingKey.Remove(jwk.AlgorithmKey)
+	require.NoError(t, err)
 
-	expectedBase := "https://" + discoveryTestHostname
-	assert.Equal(t, expectedBase, doc.Issuer)
-	assert.Equal(t, expectedBase+"/token", doc.TokenEndpoint)
-	assert.Equal(t, expectedBase+"/.well-known/jwks.json", doc.JWKSURI)
-	assert.Equal(t, []string{"id_token"}, doc.ResponseTypesSupported)
-	assert.Equal(t, []string{"public"}, doc.SubjectTypesSupported)
-	assert.Equal(t, []string{"ES256"}, doc.IDTokenSigningAlgValuesSupported)
+	s, err := NewServer(NewServerOpts{SigningKey: signingKey})
+	require.EqualError(t, err, "signing key does not contain an algorithm")
+	assert.Nil(t, s)
 }
