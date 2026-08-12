@@ -287,7 +287,7 @@ func TestHandleGetOpenIDConfiguration(t *testing.T) {
 			assert.Equal(t, expectedBase, doc.Issuer)
 			assert.Equal(t, expectedBase+"/token", doc.TokenEndpoint)
 			assert.Equal(t, expectedBase+"/.well-known/jwks.json", doc.JWKSURI)
-			assert.Equal(t, []string{"aud", "iat", "iss", "sub"}, doc.ClaimsSupported)
+			assert.Equal(t, []string{"aud", "exp", "iat", "iss", "jti", "nbf", "sub"}, doc.ClaimsSupported)
 			assert.Equal(t, []string{"id_token"}, doc.ResponseTypesSupported)
 			assert.Equal(t, []string{"public"}, doc.SubjectTypesSupported)
 			assert.Equal(t, []string{algorithm}, doc.IDTokenSigningAlgValuesSupported)

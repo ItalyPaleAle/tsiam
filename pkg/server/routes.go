@@ -137,8 +137,8 @@ func (s *Server) handleGetJWKS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Request) {
-	signingAlgorithm, hasSigningAlgorithm := s.signingKey.Algorithm()
-	if !hasSigningAlgorithm {
+	signingAlgorithm, ok := s.signingKey.Algorithm()
+	if !ok {
 		slog.ErrorContext(r.Context(), "Signing key does not contain an algorithm")
 		errInternal.WriteResponse(w, r)
 		return
@@ -163,7 +163,7 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 		Issuer:                           s.tokenIssuer(),
 		TokenEndpoint:                    endpoint + "/token",
 		JWKSURI:                          endpoint + "/.well-known/jwks.json",
-		ClaimsSupported:                  []string{"aud", "iat", "iss", "sub"},
+		ClaimsSupported:                  []string{"aud", "exp", "iat", "iss", "jti", "nbf", "sub"},
 		ResponseTypesSupported:           []string{"id_token"},
 		SubjectTypesSupported:            []string{"public"},
 		IDTokenSigningAlgValuesSupported: []string{signingAlgorithm.String()},
