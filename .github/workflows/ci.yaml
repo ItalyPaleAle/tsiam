@@ -20,15 +20,16 @@ jobs:
     permissions:
       contents: read
     env:
-      GOLANGCI_LINT_VERSION: "v2.12.2"
+      CGO_ENABLED: "0"
+      GOLANGCI_LINT_VERSION: "v2.11.4"
       GOEXPERIMENT: jsonv2
     steps:
 
       - name: Check out code
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: 'go.mod'
 
@@ -36,15 +37,15 @@ jobs:
         run: |
           go tool gomod-age
 
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+
       - name: Check diff
         run: |
           echo "If this fails, please run 'make gen-config' to fix"
           make check-config-diff
-
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
 
       - name: Test
         run: |

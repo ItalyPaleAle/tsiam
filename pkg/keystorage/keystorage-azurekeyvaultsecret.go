@@ -77,8 +77,8 @@ func (a *AzureKeyVaultSecretStorage) Load(ctx context.Context) (jwk.Key, error) 
 	// Get the secret from Azure Key Vault (empty version gets the latest)
 	resp, err := a.client.GetSecret(ctx, a.secretName, "", nil)
 	if err != nil {
-		var respErr *azcore.ResponseError
-		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+		respErr, ok := errors.AsType[*azcore.ResponseError](err)
+		if ok && respErr.StatusCode == http.StatusNotFound {
 			// Secret doesn't exist yet
 			slog.DebugContext(ctx, "No signing key found in Azure Key Vault secret", slog.String("secretName", a.secretName))
 			return nil, errKeyNoExist

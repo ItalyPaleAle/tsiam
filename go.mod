@@ -13,7 +13,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys v1.5.0
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.5.0
 	github.com/go-chi/httprate v0.16.0
-	github.com/italypaleale/go-kit v0.0.0-20260729024436-06ef4dfe084c
+	github.com/italypaleale/go-kit v0.0.0-20260804130631-7f274d362cca
 	github.com/jinzhu/copier v0.4.0
 	github.com/lestrrat-go/jwx/v4 v4.1.0
 	github.com/samber/slog-http v1.12.1

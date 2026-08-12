@@ -32,8 +32,8 @@ func main() {
 		DirName: "tsiam",
 	})
 	if err != nil {
-		var ce *configkit.ConfigError
-		if errors.As(err, &ce) {
+		ce, ok := errors.AsType[*configkit.ConfigError](err)
+		if ok {
 			ce.LogFatal(initLogger)
 		} else {
 			slogkit.FatalError(initLogger, "Failed to load configuration", err)
