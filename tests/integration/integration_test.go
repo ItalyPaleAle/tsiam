@@ -248,9 +248,13 @@ func TestOIDCEndpoints(t *testing.T) {
 
 		//nolint:tagliatelle
 		var oidcConfig struct {
-			Issuer        string `json:"issuer"`
-			TokenEndpoint string `json:"token_endpoint"`
-			JWKSURI       string `json:"jwks_uri"`
+			Issuer                           string   `json:"issuer"`
+			TokenEndpoint                    string   `json:"token_endpoint"`
+			JWKSURI                          string   `json:"jwks_uri"`
+			ClaimsSupported                  []string `json:"claims_supported"`
+			ResponseTypesSupported           []string `json:"response_types_supported"`
+			SubjectTypesSupported            []string `json:"subject_types_supported"`
+			IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
 		}
 		err = json.NewDecoder(resp.Body).Decode(&oidcConfig)
 		require.NoError(t, err)
@@ -260,6 +264,10 @@ func TestOIDCEndpoints(t *testing.T) {
 		assert.NotEmpty(t, oidcConfig.JWKSURI, "jwks_uri should not be empty")
 		assert.Contains(t, oidcConfig.TokenEndpoint, "/token")
 		assert.Contains(t, oidcConfig.JWKSURI, "/.well-known/jwks.json")
+		assert.Equal(t, []string{"aud", "exp", "iat", "iss", "jti", "nbf", "sub"}, oidcConfig.ClaimsSupported)
+		assert.Equal(t, []string{"id_token"}, oidcConfig.ResponseTypesSupported)
+		assert.Equal(t, []string{"public"}, oidcConfig.SubjectTypesSupported)
+		assert.Equal(t, []string{"ES256"}, oidcConfig.IDTokenSigningAlgValuesSupported)
 	})
 }
 

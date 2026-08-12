@@ -9,7 +9,10 @@ import (
 
 	"github.com/italypaleale/go-kit/httpserver"
 	"github.com/italypaleale/go-kit/tsnetserver"
+	"github.com/lestrrat-go/jwx/v4/jwa"
 	"github.com/lestrrat-go/jwx/v4/jwk"
+	"github.com/lestrrat-go/jwx/v4/jws"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -216,6 +219,17 @@ func TestSanitizeWhois(t *testing.T) {
 
 const discoveryTestHostname = "tsiam.test-tailnet.ts.net"
 
+//nolint:tagliatelle
+type oidcConfigurationDocument struct {
+	Issuer                           string   `json:"issuer"`
+	TokenEndpoint                    string   `json:"token_endpoint"`
+	JWKSURI                          string   `json:"jwks_uri"`
+	ClaimsSupported                  []string `json:"claims_supported"`
+	ResponseTypesSupported           []string `json:"response_types_supported"`
+	SubjectTypesSupported            []string `json:"subject_types_supported"`
+	IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
+}
+
 // Builds a Server with a fresh signing key and a pre-computed JWKS for discovery tests
 // Hostname is fixed so the OIDC URLs are predictable; whoIs is unused by these handlers
 func newDiscoveryServer(t *testing.T, algorithm string) *Server {
@@ -271,16 +285,7 @@ func TestHandleGetOpenIDConfiguration(t *testing.T) {
 			require.Equal(t, http.StatusOK, rr.Code)
 			assert.Contains(t, rr.Header().Get(httpserver.HeaderContentType), "application/json")
 
-			//nolint:tagliatelle
-			var doc struct {
-				Issuer                           string   `json:"issuer"`
-				TokenEndpoint                    string   `json:"token_endpoint"`
-				JWKSURI                          string   `json:"jwks_uri"`
-				ClaimsSupported                  []string `json:"claims_supported"`
-				ResponseTypesSupported           []string `json:"response_types_supported"`
-				SubjectTypesSupported            []string `json:"subject_types_supported"`
-				IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
-			}
+			var doc oidcConfigurationDocument
 			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &doc))
 
 			expectedBase := "https://" + discoveryTestHostname
@@ -293,6 +298,56 @@ func TestHandleGetOpenIDConfiguration(t *testing.T) {
 			assert.Equal(t, []string{algorithm}, doc.IDTokenSigningAlgValuesSupported)
 		})
 	}
+}
+
+func TestOIDCDiscoveryMatchesIssuedToken(t *testing.T) {
+	s, restore := newTestServer(t, nil, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+		return defaultWhois(), nil
+	})
+	defer restore()
+
+	tokenRecorder := postToken(t, s, "?resource="+testAudience)
+	require.Equal(t, http.StatusOK, tokenRecorder.Code, "body: %s", tokenRecorder.Body.String())
+
+	//nolint:tagliatelle
+	var tokenResponse struct {
+		AccessToken string `json:"access_token"`
+	}
+	err := json.Unmarshal(tokenRecorder.Body.Bytes(), &tokenResponse)
+	require.NoError(t, err)
+
+	discoveryRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/openid-configuration", nil)
+	discoveryRecorder := httptest.NewRecorder()
+	s.handleGetOpenIDConfiguration(discoveryRecorder, discoveryRequest)
+	require.Equal(t, http.StatusOK, discoveryRecorder.Code)
+
+	var discoveryDocument oidcConfigurationDocument
+	err = json.Unmarshal(discoveryRecorder.Body.Bytes(), &discoveryDocument)
+	require.NoError(t, err)
+
+	jwksRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/jwks.json", nil)
+	jwksRecorder := httptest.NewRecorder()
+	s.handleGetJWKS(jwksRecorder, jwksRequest)
+	require.Equal(t, http.StatusOK, jwksRecorder.Code)
+
+	keySet, err := jwk.Parse(jwksRecorder.Body.Bytes())
+	require.NoError(t, err)
+	parsedToken, err := jwt.Parse([]byte(tokenResponse.AccessToken), jwt.WithKeySet(keySet))
+	require.NoError(t, err)
+
+	tokenIssuer, ok := parsedToken.Issuer()
+	require.True(t, ok)
+	assert.Equal(t, discoveryDocument.Issuer, tokenIssuer)
+	for _, claim := range discoveryDocument.ClaimsSupported {
+		assert.True(t, parsedToken.Has(claim), "issued token should contain advertised claim %q", claim)
+	}
+
+	signedMessage, err := jws.Parse([]byte(tokenResponse.AccessToken))
+	require.NoError(t, err)
+	require.Len(t, signedMessage.Signatures(), 1)
+	tokenAlgorithm, ok := signedMessage.Signatures()[0].ProtectedHeaders().Algorithm()
+	require.True(t, ok)
+	assert.Equal(t, []string{tokenAlgorithm.String()}, discoveryDocument.IDTokenSigningAlgValuesSupported)
 }
 
 func TestHandleGetOpenIDConfigurationWithoutSigningAlgorithm(t *testing.T) {
@@ -316,4 +371,51 @@ func TestNewServerRejectsSigningKeyWithoutAlgorithm(t *testing.T) {
 	s, err := NewServer(NewServerOpts{SigningKey: signingKey})
 	require.EqualError(t, err, "signing key does not contain an algorithm")
 	assert.Nil(t, s)
+}
+
+func TestNewServerRejectsInvalidSigningKeys(t *testing.T) {
+	symmetricKey, err := jwk.Import[jwk.Key]([]byte("01234567890123456789012345678901"))
+	require.NoError(t, err)
+	err = symmetricKey.Set(jwk.AlgorithmKey, jwa.HS256())
+	require.NoError(t, err)
+
+	publicSource, err := jwks.NewSigningKey("ES256", "")
+	require.NoError(t, err)
+	publicKey, err := publicSource.PublicKey()
+	require.NoError(t, err)
+
+	encryptionKey, err := jwks.NewSigningKey("RS256", "")
+	require.NoError(t, err)
+	err = encryptionKey.Set(jwk.AlgorithmKey, jwa.RSA_OAEP())
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		key           jwk.Key
+		expectedError string
+	}{
+		{
+			name:          "symmetric key",
+			key:           symmetricKey,
+			expectedError: "symmetric signing keys are not supported",
+		},
+		{
+			name:          "public key",
+			key:           publicKey,
+			expectedError: "signing key must be private",
+		},
+		{
+			name:          "non-signature algorithm",
+			key:           encryptionKey,
+			expectedError: "signing key algorithm is not a signature algorithm",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s, err := NewServer(NewServerOpts{SigningKey: test.key})
+			require.EqualError(t, err, test.expectedError)
+			assert.Nil(t, s)
+		})
+	}
 }

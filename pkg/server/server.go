@@ -13,6 +13,7 @@ import (
 
 	httpserver "github.com/italypaleale/go-kit/httpserver"
 	"github.com/italypaleale/go-kit/tsnetserver"
+	"github.com/lestrrat-go/jwx/v4/jwa"
 	"github.com/lestrrat-go/jwx/v4/jwk"
 	sloghttp "github.com/samber/slog-http"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -65,9 +66,23 @@ func NewServer(opts NewServerOpts) (s *Server, err error) {
 	if opts.SigningKey == nil {
 		return nil, errors.New("signing key is required")
 	}
-	_, ok := opts.SigningKey.Algorithm()
+	keyAlgorithm, ok := opts.SigningKey.Algorithm()
 	if !ok {
 		return nil, errors.New("signing key does not contain an algorithm")
+	}
+	signingAlgorithm, ok := keyAlgorithm.(jwa.SignatureAlgorithm)
+	if !ok {
+		return nil, errors.New("signing key algorithm is not a signature algorithm")
+	}
+	if signingAlgorithm.IsSymmetric() {
+		return nil, errors.New("symmetric signing keys are not supported")
+	}
+	asymmetricKey, ok := opts.SigningKey.(jwk.AsymmetricKey)
+	if !ok {
+		return nil, errors.New("signing key must be asymmetric")
+	}
+	if !asymmetricKey.IsPrivate() {
+		return nil, errors.New("signing key must be private")
 	}
 
 	s = &Server{
