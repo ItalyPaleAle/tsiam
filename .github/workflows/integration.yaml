@@ -200,7 +200,7 @@ jobs:
           fi
 
           chmod +x /tmp/tsiam
-          TSIAM_CONFIG=/tmp/tsiam-config.yaml /tmp/tsiam &
+          TSIAM_CONFIG=/tmp/tsiam-config.yaml /tmp/tsiam > "$RUNNER_TEMP/tsiam-${{ matrix.auth_mode }}.log" 2>&1 &
           echo "TSIAM_PID=$!" >> $GITHUB_ENV
 
       - name: Wait for tsiam to be reachable
@@ -249,3 +249,11 @@ jobs:
       - name: Stop tsiam
         if: always()
         run: kill $TSIAM_PID 2>/dev/null || true
+
+      - name: Upload tsiam logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tsiam-logs-${{ matrix.auth_mode }}
+          path: ${{ runner.temp }}/tsiam-${{ matrix.auth_mode }}.log
+          if-no-files-found: warn
