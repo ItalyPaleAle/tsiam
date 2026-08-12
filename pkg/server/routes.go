@@ -137,11 +137,22 @@ func (s *Server) handleGetJWKS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Request) {
+	signingAlgorithm, ok := s.signingKey.Algorithm()
+	if !ok {
+		slog.ErrorContext(r.Context(), "Signing key does not contain an algorithm")
+		errInternal.WriteResponse(w, r)
+		return
+	}
+
 	//nolint:tagliatelle
 	type oidcConfiguration struct {
-		Issuer        string `json:"issuer"`
-		TokenEndpoint string `json:"token_endpoint"`
-		JWKSURI       string `json:"jwks_uri"`
+		Issuer                           string   `json:"issuer"`
+		TokenEndpoint                    string   `json:"token_endpoint"`
+		JWKSURI                          string   `json:"jwks_uri"`
+		ClaimsSupported                  []string `json:"claims_supported"`
+		ResponseTypesSupported           []string `json:"response_types_supported"`
+		SubjectTypesSupported            []string `json:"subject_types_supported"`
+		IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
 	}
 
 	// The tsnet FQDN is the MagicDNS name that Funnel exposes publicly, so the same hostname works for both tailnet-only and Funnel deployments
@@ -149,9 +160,13 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set(httpserver.HeaderContentType, httpserver.ContentTypeJson)
 	httpserver.RespondWithJSON(w, r, oidcConfiguration{
-		Issuer:        s.tokenIssuer(),
-		TokenEndpoint: endpoint + "/token",
-		JWKSURI:       endpoint + "/.well-known/jwks.json",
+		Issuer:                           s.tokenIssuer(),
+		TokenEndpoint:                    endpoint + "/token",
+		JWKSURI:                          endpoint + "/.well-known/jwks.json",
+		ClaimsSupported:                  []string{"aud", "exp", "iat", "iss", "jti", "nbf", "sub"},
+		ResponseTypesSupported:           []string{"id_token"},
+		SubjectTypesSupported:            []string{"public"},
+		IDTokenSigningAlgValuesSupported: []string{signingAlgorithm.String()},
 	})
 }
 
