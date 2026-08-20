@@ -1,6 +1,6 @@
 module github.com/italypaleale/tsiam
 
-go 1.26.5
+go 1.26.6
 
 tool (
 	github.com/fchimpan/gomod-age
@@ -23,7 +23,7 @@ require (
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/metric v1.45.0
 	go.opentelemetry.io/otel/sdk v1.45.0
-	tailscale.com v1.102.2
+	tailscale.com v1.102.3
 )
 
 require (
