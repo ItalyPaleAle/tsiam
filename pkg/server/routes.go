@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -46,13 +47,20 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 	whois = sanitizeWhois(whois)
 
 	// Extract and validate audience parameter
-	audience, apiErr := extractAudience(r)
-	if apiErr != nil {
+	audience, err := extractAudience(r)
+	if err != nil {
 		slog.WarnContext(r.Context(), "Invalid audience parameter",
 			slog.String("nodeId", whois.NodeID),
 			slog.String("nodeName", whois.Name),
-			slog.Any("error", apiErr),
+			slog.Any("error", err),
 		)
+
+		// Writing the response requires an ApiError, since the zero value carries no HTTP status code
+		var apiErr httpserver.ApiError
+		ok := errors.As(err, &apiErr)
+		if !ok {
+			apiErr = errInternal
+		}
 		apiErr.WriteResponse(w, r)
 		return
 	}
@@ -195,7 +203,8 @@ func resolveSubject(cfg *config.Config, whois tsnetserver.TailscaleWhoIs, matche
 }
 
 // extractAudience extracts and validates the audience parameter from the request
-func extractAudience(r *http.Request) (string, *httpserver.ApiError) {
+// All errors returned are httpserver.ApiError values, which callers can write to the response
+func extractAudience(r *http.Request) (string, error) {
 	// Get both resource and audience parameters
 	resource := strings.TrimSpace(r.URL.Query().Get("resource"))
 	audience := strings.TrimSpace(r.URL.Query().Get("audience"))

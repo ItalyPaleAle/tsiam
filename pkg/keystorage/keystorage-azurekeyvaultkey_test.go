@@ -120,9 +120,7 @@ func TestAzureKeyVaultKeyStorage_LoadExisting(t *testing.T) {
 			mock.Anything,
 		).
 		Return(azkeys.UnwrapKeyResponse{
-			KeyOperationResult: azkeys.KeyOperationResult{
-				Result: keyJSON,
-			},
+			Result: keyJSON,
 		}, nil)
 
 	// Load the key
@@ -205,9 +203,7 @@ func TestAzureKeyVaultKeyStorage_Store(t *testing.T) {
 			mock.Anything,
 		).
 		Return(azkeys.WrapKeyResponse{
-			KeyOperationResult: azkeys.KeyOperationResult{
-				Result: wrappedData,
-			},
+			Result: wrappedData,
 		}, nil)
 
 	// Store the key
@@ -274,9 +270,7 @@ func TestAzureKeyVaultKeyStorage_RoundTrip(t *testing.T) {
 			}
 		}).
 		Return(azkeys.WrapKeyResponse{
-			KeyOperationResult: azkeys.KeyOperationResult{
-				Result: wrappedData,
-			},
+			Result: wrappedData,
 		}, nil)
 
 	// Store the key
@@ -302,9 +296,7 @@ func TestAzureKeyVaultKeyStorage_RoundTrip(t *testing.T) {
 			mock.Anything,
 		).
 		Return(azkeys.UnwrapKeyResponse{
-			KeyOperationResult: azkeys.KeyOperationResult{
-				Result: originalKeyData,
-			},
+			Result: originalKeyData,
 		}, nil)
 
 	// Load the key back

@@ -145,13 +145,15 @@ func TestExtractAudience(t *testing.T) {
 			result, err := extractAudience(req)
 
 			if tt.expectError {
-				require.NotNil(t, err, "Expected an error but got nil")
+				require.Error(t, err, "Expected an error but got nil")
 				if tt.errorType != "" {
 					// Check that the error code matches
-					assert.Contains(t, err.Error(), tt.errorType)
+					var apiErr httpserver.ApiError
+					require.ErrorAs(t, err, &apiErr)
+					assert.Equal(t, tt.errorType, apiErr.Code)
 				}
 			} else {
-				require.Nil(t, err, "Expected no error but got: %v", err)
+				require.NoError(t, err, "Expected no error but got: %v", err)
 				assert.Equal(t, tt.expected, result)
 			}
 		})

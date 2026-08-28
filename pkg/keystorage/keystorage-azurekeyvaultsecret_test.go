@@ -98,9 +98,7 @@ func TestAzureKeyVaultSecretStorage_LoadExisting(t *testing.T) {
 			mock.Anything,
 		).
 		Return(azsecrets.GetSecretResponse{
-			Secret: azsecrets.Secret{
-				Value: &secretValue,
-			},
+			Value: &secretValue,
 		}, nil)
 
 	// Load the key
@@ -214,9 +212,7 @@ func TestAzureKeyVaultSecretStorage_RoundTrip(t *testing.T) {
 
 	// Mock GetSecret to return the stored value
 	mockClient.On("GetSecret", mock.Anything, "test-secret", "", mock.Anything).Return(azsecrets.GetSecretResponse{
-		Secret: azsecrets.Secret{
-			Value: &storedValue,
-		},
+		Value: &storedValue,
 	}, nil)
 
 	// Load the key back

@@ -62,10 +62,8 @@ func NewAzureKeyVaultKeyStorage(vaultURL string, keyName string, storagePath str
 	}
 
 	client, err := azkeys.NewClient(vaultURL, credential, &azkeys.ClientOptions{
-		ClientOptions: azcore.ClientOptions{
-			Telemetry: policy.TelemetryOptions{
-				Disabled: true,
-			},
+		Telemetry: policy.TelemetryOptions{
+			Disabled: true,
 		},
 	})
 	if err != nil {

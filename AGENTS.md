@@ -24,7 +24,18 @@ If you modify `pkg/config.Config` or any struct referenced from it, always run `
 
 ## Running tests
 
-When compiling or testing code that imports use Go 1.26+ and set `GOEXPERIMENT=jsonv2`.
+When compiling or testing code that imports use Go 1.27+.
+
+## Running the linter
+
+The linter is pinned to a specific version (included in `.github/workflows/ci.yaml`), which must be installed from the pre-compiled binary: builds from package managers are compiled with an older Go and refuse this module's Go version.
+
+```sh
+VERSION="2.x.x" # From .github/workflows/ci.yaml
+curl -sSL https://github.com/golangci/golangci-lint/releases/download/v${VERSION}/golangci-lint-${VERSION}-linux-amd64.tar.gz | tar -xz -C /tmp
+install /tmp/golangci-lint-${VERSION}-linux-amd64/golangci-lint /usr/local/bin
+make lint
+```
 
 ## Comments
 
