@@ -5,5 +5,11 @@
     "golang.org/x/*",
     "tailscale.com",
     "github.com/Azure/azure-sdk-for-go/*"
+  ],
+  "allow": [
+    {
+      "module": "github.com/lestrrat-go/jwx/v4",
+      "version": "v4.6.0"
+    }
   ]
 }
