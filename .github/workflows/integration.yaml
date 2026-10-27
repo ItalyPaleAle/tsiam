@@ -15,7 +15,7 @@ env:
 jobs:
   build:
     name: Build tsiam
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
 
@@ -41,7 +41,7 @@ jobs:
   integration-test:
     name: Integration Test (${{ matrix.auth_mode }})
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
