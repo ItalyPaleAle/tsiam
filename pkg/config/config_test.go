@@ -21,21 +21,24 @@ func newValidConfig() *Config {
 func TestValidateClaimName(t *testing.T) {
 	t.Run("defaults to the app namespace", func(t *testing.T) {
 		c := newValidConfig()
-		require.NoError(t, c.Validate(slog.Default()))
+		err := c.Validate(slog.Default())
+		require.NoError(t, err)
 		assert.Equal(t, "italypaleale.me/tsiam", c.Tokens.ClaimName)
 	})
 
 	t.Run("empty value falls back to the default", func(t *testing.T) {
 		c := newValidConfig()
 		c.Tokens.ClaimName = "  "
-		require.NoError(t, c.Validate(slog.Default()))
+		err := c.Validate(slog.Default())
+		require.NoError(t, err)
 		assert.Equal(t, "italypaleale.me/tsiam", c.Tokens.ClaimName)
 	})
 
 	t.Run("custom value is trimmed and kept", func(t *testing.T) {
 		c := newValidConfig()
 		c.Tokens.ClaimName = " tsiam "
-		require.NoError(t, c.Validate(slog.Default()))
+		err := c.Validate(slog.Default())
+		require.NoError(t, err)
 		assert.Equal(t, "tsiam", c.Tokens.ClaimName)
 	})
 

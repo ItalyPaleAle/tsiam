@@ -90,9 +90,8 @@ type ConfigTokens struct {
 	SubjectClaim string `yaml:"subjectClaim"`
 
 	// Name of the custom JWT claim that carries the caller's Tailscale identity (node ID, name, tags, user, IPs)
-	// Relying parties reference this name in their trust policies and attribute mappings, so changing it on an existing deployment breaks them
-	// This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always `italypaleale.me/tsiam`
 	// Must not be one of the registered claims that tsiam sets itself: `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`
+	// Note: This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always `italypaleale.me/tsiam`
 	// +default "italypaleale.me/tsiam"
 	ClaimName string `yaml:"claimName"`
 }
