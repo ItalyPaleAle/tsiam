@@ -4,6 +4,8 @@ import (
 	"time"
 
 	configkit "github.com/italypaleale/go-kit/config"
+
+	"github.com/italypaleale/tsiam/pkg/buildinfo"
 )
 
 var (
@@ -40,6 +42,7 @@ func GetDefaultConfig() *Config {
 		Tokens: ConfigTokens{
 			Lifetime:           5 * time.Minute,
 			RateLimitPerMinute: 60,
+			ClaimName:          buildinfo.AppNamespace,
 		},
 		TSNet: ConfigTSNet{
 			Hostname:  "tsiam",

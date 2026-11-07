@@ -96,6 +96,7 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 | `tokens.allowedAudiences` | list | **required** | Audiences that can be requested; only these values will be issued |
 | `tokens.allowEmptyNodeCapability` | boolean | `false` | If true, nodes without an explicit ACL capability grant can request any globally-allowed audience |
 | `tokens.subjectClaim` | string | `"nodeId"` | Value to use for the JWT `sub` claim — see below |
+| `tokens.claimName` | string | `"italypaleale.me/tsiam"` | Name of the custom claim that carries the caller's Tailscale identity; changing it breaks existing relying-party mappings — see [JWT claims](/docs/getting-a-token#jwt-claims) |
 
 #### `tokens.subjectClaim` values
 

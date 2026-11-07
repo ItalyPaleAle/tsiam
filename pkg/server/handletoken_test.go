@@ -300,6 +300,35 @@ func TestHandlePostToken_TaggedNodeBlanksUserLoginInClaim(t *testing.T) {
 	}
 }
 
+func TestHandlePostToken_CustomClaimName(t *testing.T) {
+	s, restore := newTestServer(t, func(c *config.Config) {
+		c.Tokens.ClaimName = "tsiam"
+	}, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+		return defaultWhois(), nil
+	})
+	defer restore()
+
+	// defaultWhois grants the audience under the `italypaleale.me/tsiam` ACL capability, so a successful issuance shows that renaming the claim leaves the capability key unchanged
+	rr := postToken(t, s, "?resource="+testAudience)
+	require.Equal(t, http.StatusOK, rr.Code, "body: %s", rr.Body.String())
+
+	//nolint:tagliatelle
+	var resp struct {
+		AccessToken string `json:"access_token"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+
+	parsed, err := jwt.Parse([]byte(resp.AccessToken),
+		jwt.WithKey(mustAlg(t, s), s.signingKey),
+	)
+	require.NoError(t, err)
+
+	claim, err := jwt.Get[map[string]any](parsed, "tsiam")
+	require.NoError(t, err)
+	assert.Equal(t, testWhoisNode, claim["nodeId"])
+	assert.False(t, parsed.Has("italypaleale.me/tsiam"))
+}
+
 func TestHandlePostToken_ResourceAndAudienceAliases(t *testing.T) {
 	// Both query parameter names should be accepted; resource wins when both are set to the same value
 	cases := []string{

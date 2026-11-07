@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/italypaleale/tsiam/pkg/buildinfo"
 )
 
 // Config represents the application configuration
@@ -81,11 +83,18 @@ type ConfigTokens struct {
 	//   - "capability": the `subject` field of the Tailscale ACL grant that authorized the requested audience. Lets multiple nodes share a workload identity by setting the same `subject` in their grant; falls back to the stable node ID when the matching grant has no `subject` set (or when the caller has no capability and `allowEmptyNodeCapability` is true).
 	//
 	// WARNING for `"name"`: node names CAN be reused once a device is removed from the tailnet, which means a relying-party trust policy keyed on a node name can be silently re-targeted by whoever creates the next device with that name
-	// Only choose `"name"` if you have relying parties that cannot be reconfigured to consume the stable node ID, and treat the node name as a soft identifier (e.g. require additional checks on the `tsiam.nodeId` custom claim)
+	// Only choose `"name"` if you have relying parties that cannot be reconfigured to consume the stable node ID, and treat the node name as a soft identifier (e.g. require additional checks on the `nodeId` field of the identity claim)
 	//
-	// In all cases the full whois payload (node ID, name, tags, user, IPs) is also exposed under the `tsiam` custom claim
+	// In all cases the full whois payload (node ID, name, tags, user, IPs) is also exposed under the identity claim, whose name is set by `claimName`
 	// +default "nodeId"
 	SubjectClaim string `yaml:"subjectClaim"`
+
+	// Name of the custom JWT claim that carries the caller's Tailscale identity (node ID, name, tags, user, IPs)
+	// Relying parties reference this name in their trust policies and attribute mappings, so changing it on an existing deployment breaks them
+	// This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always `italypaleale.me/tsiam`
+	// Must not be one of the registered claims that tsiam sets itself: `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`
+	// +default "italypaleale.me/tsiam"
+	ClaimName string `yaml:"claimName"`
 }
 
 // Allowed values for ConfigTokens.SubjectClaim
@@ -265,6 +274,16 @@ func (c *Config) Validate(logger *slog.Logger) error {
 		// Valid
 	default:
 		return errors.New("configuration option 'tokens.subjectClaim' is not valid; allowed values: 'nodeId', 'name', 'capability'")
+	}
+
+	// Identity claim name
+	// Registered claims are rejected because the identity payload would overwrite or collide with a claim tsiam already sets
+	c.Tokens.ClaimName = strings.TrimSpace(c.Tokens.ClaimName)
+	switch c.Tokens.ClaimName {
+	case "":
+		c.Tokens.ClaimName = buildinfo.AppNamespace
+	case "iss", "sub", "aud", "exp", "nbf", "iat", "jti":
+		return errors.New("configuration option 'tokens.claimName' must not be a registered JWT claim set by tsiam: 'iss', 'sub', 'aud', 'exp', 'nbf', 'iat', 'jti'")
 	}
 
 	// Audience configuration

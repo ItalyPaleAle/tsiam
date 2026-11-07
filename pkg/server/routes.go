@@ -93,8 +93,9 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		Issuer:   s.tokenIssuer(),
 		Audience: audience,
 		Lifetime: cfg.Tokens.Lifetime,
-		Subject:  resolveSubject(cfg, whois, matchedCap),
-		Whois:    whois,
+		Subject:   resolveSubject(cfg, whois, matchedCap),
+		Whois:     whois,
+		ClaimName: cfg.Tokens.ClaimName,
 	})
 	if err != nil {
 		slog.ErrorContext(r.Context(), "Failed to generate token", slog.Any("error", err))
@@ -180,7 +181,7 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 
 // Clears identity fields on the resolved whois that are not meaningful for the given Tailscale identity
 // On tagged nodes the upstream UserLoginName carries the tag actor's email rather than a workload-owning user
-// Blanking it here prevents relying parties from binding trust policies on a value that does not actually identify the workload (the node's tags are still emitted under `tsiam.tags`)
+// Blanking it here prevents relying parties from binding trust policies on a value that does not actually identify the workload (the node's tags are still emitted in the `tags` field of the identity claim)
 func sanitizeWhois(whois tsnetserver.TailscaleWhoIs) tsnetserver.TailscaleWhoIs {
 	if len(whois.Tags) > 0 {
 		whois.UserLoginName = ""

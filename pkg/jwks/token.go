@@ -20,8 +20,11 @@ type TokenRequest struct {
 	Lifetime time.Duration
 	// Value placed in the JWT `sub` claim
 	Subject string
-	// Resolved Tailscale identity for the caller, emitted as the namespaced custom claim payload
+	// Resolved Tailscale identity for the caller, emitted as the payload of the identity claim
 	Whois tsnetserver.TailscaleWhoIs
+	// Name of the identity claim
+	// Defaults to buildinfo.AppNamespace when empty
+	ClaimName string
 }
 
 type TokenResponse struct {
@@ -47,6 +50,11 @@ func NewToken(key jwk.Key, opts TokenRequest) (TokenResponse, error) {
 	}
 	jti := base64.RawURLEncoding.EncodeToString(jtiBytes)
 
+	claimName := opts.ClaimName
+	if claimName == "" {
+		claimName = buildinfo.AppNamespace
+	}
+
 	// Create JWT token
 	now := time.Now()
 	exp := now.Add(opts.Lifetime)
@@ -56,7 +64,7 @@ func NewToken(key jwk.Key, opts TokenRequest) (TokenResponse, error) {
 		IssuedAt(now).
 		NotBefore(now).
 		Expiration(exp).
-		Claim(buildinfo.AppNamespace, opts.Whois)
+		Claim(claimName, opts.Whois)
 	if opts.Issuer != "" {
 		b = b.Issuer(opts.Issuer)
 	}
