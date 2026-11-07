@@ -49,7 +49,7 @@ Present the `access_token` as a Bearer token to the target service.
 
 ## JWT claims
 
-The JWT token contains your Tailscale node identity in the `tsiam` claim and the requested audience in the `aud` claim:
+The JWT token contains the requested audience in the `aud` claim, and your Tailscale node identity in a custom identity claim. The identity claim is named `italypaleale.me/tsiam` by default, and the name can be changed with [`tokens.claimName`](/docs/configuration#tokens):
 
 ```jsonc
 {
@@ -71,8 +71,8 @@ The JWT token contains your Tailscale node identity in the `tsiam` claim and the
   // Not Before: earliest time the token can be used (Unix timestamp)
   "nbf": 1735700600,
 
-  // Custom claim with detailed Tailscale node information
-  "tsiam": {
+  // Identity claim with detailed Tailscale node information (name set by tokens.claimName)
+  "italypaleale.me/tsiam": {
     "nodeId": "abc123",
     "name": "my-server.tailnet-name.ts.net",
     "hostname": "my-server",
@@ -90,7 +90,17 @@ The JWT token contains your Tailscale node identity in the `tsiam` claim and the
 
 By default the `sub` claim is the stable Tailscale node identifier. Set [`tokens.subjectClaim`](./configuration.md#tokenssubjectclaim-values) to `"name"` to use the (recyclable) node name instead (note the security warning in the config docs) or to `"capability"` to pull the subject from the `subject` field of the matching Tailscale ACL grant, letting multiple nodes share one workload identity.
 
-> **Tagged nodes:** for nodes that carry one or more Tailscale tags (`tag:*`), `tsiam.userLoginName` is always emitted as an empty string. The upstream value is the email of whoever authorized the tag, not the workload's owner, so it must not be used as a user-identity signal in relying-party trust policies. Bind tagged-workload trust policies to `tsiam.tags` and `tsiam.nodeId` instead.
+> **Tagged nodes:** for nodes that carry one or more Tailscale tags (`tag:*`), the `userLoginName` field of the identity claim is always empty. The upstream value is the email of whoever authorized the tag, not the workload's owner, so it must not be used as a user-identity signal in relying-party trust policies. Bind tagged-workload trust policies to the `tags` and `nodeId` fields instead.
+
+### Referencing the identity claim
+
+The default claim name contains `.` and `/`, so policy languages that use dotted paths need index syntax to read it. For example, a Google Cloud workload identity pool attribute mapping would be:
+
+```text
+attribute.node_id = assertion['italypaleale.me/tsiam'].nodeId
+```
+
+If you set `tokens.claimName` to `tsiam`, the same mapping becomes `assertion.tsiam.nodeId`. The claim name only affects issued tokens: Tailscale ACL grants always use the `italypaleale.me/tsiam` capability key (see [Audience Authorization](/docs/audience-authorization)).
 
 ### Code Examples
 

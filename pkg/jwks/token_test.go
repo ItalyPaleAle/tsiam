@@ -251,6 +251,28 @@ func TestNewToken(t *testing.T) {
 		assert.Equal(t, "tag:production", tags[1])
 	})
 
+	t.Run("Identity claim uses configured name", func(t *testing.T) {
+		resp, err := NewToken(key, TokenRequest{
+			Issuer:    "https://test-issuer.example.com",
+			Audience:  "https://test-audience.example.com",
+			Lifetime:  5 * time.Minute,
+			Subject:   testWhois.NodeID,
+			Whois:     testWhois,
+			ClaimName: "tsiam",
+		})
+		require.NoError(t, err)
+
+		parsedToken, err := jwt.Parse([]byte(resp.Token), jwt.WithVerify(false))
+		require.NoError(t, err)
+
+		claim, err := jwt.Get[map[string]any](parsedToken, "tsiam")
+		require.NoError(t, err, "identity claim should be present under the configured name")
+		assert.Equal(t, "test-node-id", claim["nodeId"])
+
+		// The payload must be emitted only once, so relying parties never see two copies that could disagree
+		assert.False(t, parsedToken.Has("italypaleale.me/tsiam"), "default claim name should not be emitted when a custom name is set")
+	})
+
 	t.Run("Token signature is valid", func(t *testing.T) {
 		resp, err := NewToken(key, TokenRequest{
 			Issuer:   "https://test-issuer.example.com",
