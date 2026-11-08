@@ -190,11 +190,45 @@ jobs:
           echo ".out:"
           ls -al .out
 
+      # One CycloneDX SBOM per release binary, generated from the module list that Go embeds in each binary
+      # tailscale.com links different modules on each OS, so an SBOM for the whole repo would not match what users deploy
+      # The SBOMs are written to .out before the checksum and attestation steps, so both cover them too
+      - name: Generate SBOMs
+        env:
+          # Pinned to an exact release that is at least a week old
+          # `go install pkg@version` ignores this repo's go.mod and verifies the downloaded modules against sum.golang.org
+          CYCLONEDX_GOMOD_VERSION: "v1.12.0"
+        run: |
+          GOBIN="${RUNNER_TEMP}/bin" go install "github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@${CYCLONEDX_GOMOD_VERSION}"
+
+          # Usage: sbom <target> <GOOS> <GOARCH> <binary name>
+          # cyclonedx-gomod reads the build settings from the binary, but takes the GOOS and GOARCH in package URLs from `go env`, so they must be set to match the build
+          sbom() {
+            echo -e "\n###\nGenerating SBOM for $1\n"
+            GOOS="$2" GOARCH="$3" "${RUNNER_TEMP}/bin/cyclonedx-gomod" bin \
+              -json \
+              -std \
+              -version "${BUILD_VERSION}" \
+              -output ".out/tsiam-${BUILD_ID}-$1.cdx.json" \
+              ".bin/tsiam-${BUILD_ID}-$1/$4"
+          }
+
+          sbom linux-amd64 linux amd64 tsiam
+          sbom linux-arm64 linux arm64 tsiam
+          sbom linux-armv7 linux arm tsiam
+          sbom windows-x64 windows amd64 tsiam.exe
+          sbom windows-arm64 windows arm64 tsiam.exe
+          sbom freebsd-amd64 freebsd amd64 tsiam
+          sbom freebsd-arm64 freebsd arm64 tsiam
+
+          echo -e "\n###\nSBOMs done\n"
+          ls -al .out
+
       - name: Generate checksums
         working-directory: .out
         run: |
           shopt -s nullglob
-          files=(tsiam-*.tar.gz tsiam-*.zip)
+          files=(tsiam-*.tar.gz tsiam-*.zip tsiam-*.cdx.json)
           if [[ ${#files[@]} -eq 0 ]]; then
             echo "::error::No release archives found in .out"
             exit 1
@@ -216,7 +250,7 @@ jobs:
           file: Dockerfile
           push: true
 
-      # A single attestation covering every file attached to the release: the archives plus checksums.txt
+      # A single attestation covering every file attached to the release: the archives, their SBOMs, and checksums.txt
       - name: Attestation for release archives
         id: attest-archives
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # 4.2.1
