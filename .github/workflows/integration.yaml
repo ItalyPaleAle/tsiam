@@ -108,7 +108,7 @@ jobs:
                 }
               },
               "expirySeconds": 300
-            }' | tee /dev/stderr | jq -r '.key')
+            }' | jq -r '.key')
 
           if [ -z "$AUTH_KEY" ] || [ "$AUTH_KEY" = "null" ]; then
             echo "Failed to generate auth key"
