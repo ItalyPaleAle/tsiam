@@ -116,6 +116,13 @@ tokens:
   ## Default: "italypaleale.me/tsiam"
   #claimName: "italypaleale.me/tsiam"
 
+  ## tokens.includeCapabilities (boolean)
+  ## Description:
+  ##   If true, the identity claim includes the caller's tsiam capability grants (the `italypaleale.me/tsiam` values from Tailscale ACL grants) under the `capMap` field
+  ##   Tokens are signed but not encrypted, so when enabled every relying party can read the caller's `allowedAudiences` and `subject` grant values
+  ## Default: false
+  #includeCapabilities: false
+
 signingKey:
   ## signingKey.storage (string)
   ## Description:

@@ -5,8 +5,18 @@
 package config
 
 import (
+	"encoding/json"
+
 	"github.com/jinzhu/copier"
 )
+
+// String implements fmt.Stringer and prints out the config for debugging
+// It is only available in unit tests because the output includes secrets such as `tsnet.authKey` and `clientSecret` verbatim
+func (c *Config) String() string {
+	//nolint:errchkjson,musttag
+	enc, _ := json.Marshal(c)
+	return string(enc)
+}
 
 // SetTestConfig updates the configuration in the global config object for the test
 // Returns a function that should be called with "defer" to restore the previous configuration

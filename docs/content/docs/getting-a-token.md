@@ -90,6 +90,23 @@ The JWT token contains the requested audience in the `aud` claim, and your Tails
 
 By default the `sub` claim is the stable Tailscale node identifier. Set [`tokens.subjectClaim`](./configuration.md#tokenssubjectclaim-values) to `"name"` to use the (recyclable) node name instead (note the security warning in the config docs) or to `"capability"` to pull the subject from the `subject` field of the matching Tailscale ACL grant, letting multiple nodes share one workload identity.
 
+The identity claim does not include the caller's Tailscale peer capabilities by default. Set [`tokens.includeCapabilities`](/docs/configuration#tokens) to `true` to add the caller's tsiam grants under a `capMap` field, keyed by the `italypaleale.me/tsiam` capability. Tokens are signed but not encrypted, so every relying party can read those grants (including their `allowedAudiences` and `subject` values).
+
+```jsonc
+{
+  // ...
+  "italypaleale.me/tsiam": {
+    // ...
+    // Only present when tokens.includeCapabilities is true
+    "capMap": {
+      "italypaleale.me/tsiam": [
+        { "allowedAudiences": [ "https://api.example.com" ], "subject": "my-workload" }
+      ]
+    }
+  }
+}
+```
+
 > **Tagged nodes:** for nodes that carry one or more Tailscale tags (`tag:*`), the `userLoginName` field of the identity claim is always empty. The upstream value is the email of whoever authorized the tag, not the workload's owner, so it must not be used as a user-identity signal in relying-party trust policies. Bind tagged-workload trust policies to the `tags` and `nodeId` fields instead.
 
 ### Referencing the identity claim

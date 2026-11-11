@@ -6,8 +6,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/italypaleale/go-kit/tsnetserver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/italypaleale/tsiam/pkg/config"
 )
 
 func TestTokenRateLimit(t *testing.T) {
@@ -75,6 +78,102 @@ func TestTokenRateLimit(t *testing.T) {
 		assert.Equal(t, http.StatusTooManyRequests, mk("100.64.0.10:2222").Code)
 		// IP B is unaffected by A's throttling
 		assert.Equal(t, http.StatusOK, mk("100.64.0.11:1111").Code)
+	})
+}
+
+func TestRateLimitKey(t *testing.T) {
+	// Helper that swaps the package-level seam for the duration of the subtest
+	withFunnelClientIP := func(t *testing.T, ip string) {
+		t.Helper()
+		prev := funnelClientIP
+		funnelClientIP = func(*http.Request) string { return ip }
+		t.Cleanup(func() { funnelClientIP = prev })
+	}
+
+	keyFor := func(t *testing.T, remoteAddr string) string {
+		t.Helper()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+		req.RemoteAddr = remoteAddr
+		return rateLimitKey(req)
+	}
+
+	t.Run("Direct request uses the RemoteAddr IP", func(t *testing.T) {
+		withFunnelClientIP(t, "")
+		assert.Equal(t, "100.64.0.1", keyFor(t, "100.64.0.1:1234"))
+	})
+
+	t.Run("RemoteAddr without a port is used as-is", func(t *testing.T) {
+		withFunnelClientIP(t, "")
+		assert.Equal(t, "100.64.0.1", keyFor(t, "100.64.0.1"))
+	})
+
+	t.Run("IPv6 addresses are canonicalized to their /64 prefix", func(t *testing.T) {
+		withFunnelClientIP(t, "")
+		assert.Equal(t, keyFor(t, "[2001:db8:1:2::1]:1234"), keyFor(t, "[2001:db8:1:2::ffff]:1234"))
+		assert.NotEqual(t, keyFor(t, "[2001:db8:1:2::1]:1234"), keyFor(t, "[2001:db8:1:3::1]:1234"))
+	})
+
+	t.Run("Funneled request uses the original client IP rather than the relay", func(t *testing.T) {
+		withFunnelClientIP(t, "203.0.113.7")
+		assert.Equal(t, "203.0.113.7", keyFor(t, "100.100.100.100:443"))
+	})
+}
+
+// Exercises the rate limiters through the full handler chain, to catch regressions in the order middlewares are applied
+func TestRouteRateLimits(t *testing.T) {
+	newServer := func(t *testing.T) *Server {
+		t.Helper()
+		s, restore := newTestServer(t, func(c *config.Config) {
+			c.Tokens.RateLimitPerMinute = 3
+		}, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+			return defaultWhois(), nil
+		})
+		t.Cleanup(restore)
+		s.initAppServer()
+		return s
+	}
+
+	serve := func(t *testing.T, s *Server, method string, path string, remoteAddr string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequestWithContext(t.Context(), method, path, nil)
+		req.RemoteAddr = remoteAddr
+		rr := httptest.NewRecorder()
+		s.handler.ServeHTTP(rr, req)
+		return rr
+	}
+	do := func(t *testing.T, s *Server, method string, path string, remoteAddr string) int {
+		t.Helper()
+		return serve(t, s, method, path, remoteAddr).Code
+	}
+
+	t.Run("Token requests rejected by other middlewares count against the limit", func(t *testing.T) {
+		s := newServer(t)
+
+		// Missing X-Tsiam header, so requireNoBrowser rejects these requests
+		for range 3 {
+			require.Equal(t, http.StatusForbidden, do(t, s, http.MethodPost, "/token?resource="+testAudience, "100.64.0.1:1234"))
+		}
+		assert.Equal(t, http.StatusTooManyRequests, do(t, s, http.MethodPost, "/token?resource="+testAudience, "100.64.0.1:1234"))
+	})
+
+	t.Run("Public endpoints share a per-client limit", func(t *testing.T) {
+		s := newServer(t)
+
+		for i := range publicRateLimitPerSecond {
+			path := "/.well-known/jwks.json"
+			if i%2 == 1 {
+				path = "/.well-known/openid-configuration"
+			}
+			require.Equal(t, http.StatusOK, do(t, s, http.MethodGet, path, "100.64.0.1:1234"), "request %d of the burst should be allowed", i+1)
+		}
+		rr := serve(t, s, http.MethodGet, "/.well-known/jwks.json", "100.64.0.1:1234")
+		assert.Equal(t, http.StatusTooManyRequests, rr.Code)
+		// httprate sets Retry-After to the window length, so this also checks that the window is one second
+		assert.Equal(t, "1", rr.Header().Get("Retry-After"))
+		assert.Equal(t, http.StatusTooManyRequests, do(t, s, http.MethodGet, "/.well-known/openid-configuration", "100.64.0.1:1234"))
+
+		// Another client is unaffected
+		assert.Equal(t, http.StatusOK, do(t, s, http.MethodGet, "/.well-known/jwks.json", "100.64.0.2:1234"))
 	})
 }
 

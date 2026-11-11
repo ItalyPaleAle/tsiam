@@ -15,8 +15,14 @@ import (
 
 const tsiamHeaderName = "X-Tsiam"
 
-// Indirection over tsnetserver.IsFunneledRequest so tests can simulate a funneled request without going through the real tsnet ConnContext (the funnel context key is unexported upstream)
-var isFunneledRequest = tsnetserver.IsFunneledRequest
+// Indirection over tsnetserver.IsFunneledRequest and tsnetserver.FunnelClientIP so tests can simulate a funneled request without going through the real tsnet ConnContext (the funnel context key is unexported upstream)
+var (
+	isFunneledRequest = tsnetserver.IsFunneledRequest
+	funnelClientIP    = tsnetserver.FunnelClientIP
+)
+
+// Maximum number of requests per second accepted from a single client on the public endpoints (`/.well-known/*`), which are reachable from the internet when Funnel is enabled
+const publicRateLimitPerSecond = 10
 
 // Rejects with 413 when the request's Content-Length exceeds maxSize, before any handler runs
 // httpserver.MiddlewareMaxBodySize wraps r.Body with MaxBytesReader, but that only enforces the cap when the handler actually reads the body
@@ -35,26 +41,40 @@ func rejectOversizedRequest(maxSize int64) httpserver.Middleware {
 	}
 }
 
-// Returns a middleware that limits each caller to rpm requests per minute, keyed on the caller's IP address (from r.RemoteAddr)
+// Returns a middleware that limits each caller to rpm requests per minute, keyed on the caller's IP address (see rateLimitKey)
 func tokenRateLimit(rpm int) httpserver.MiddlewareFunc {
 	if rpm <= 0 {
 		// Disable the middleware
 		return func(next http.HandlerFunc) http.HandlerFunc { return next }
 	}
 
-	keyByRemoteAddr := func(r *http.Request) (string, error) {
-		// This server is only ever reached directly through tsnet (see requireNotFunneledRequest and the tsnet listener setup), never behind a reverse proxy or load balancer, so r.RemoteAddr is always the caller's real Tailscale IP and is trusted here
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			ip = r.RemoteAddr
-		}
-		return httprate.CanonicalizeIP(ip), nil
-	}
+	return rateLimit(rpm, time.Minute)
+}
 
-	rl := httprate.LimitBy(rpm, time.Minute, keyByRemoteAddr)
+// Returns a middleware that limits each client to limit requests in a sliding window, keyed on the client's IP address (see rateLimitKey)
+func rateLimit(limit int, window time.Duration) httpserver.MiddlewareFunc {
+	rl := httprate.LimitBy(limit, window, func(r *http.Request) (string, error) {
+		return rateLimitKey(r), nil
+	})
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return rl(next).ServeHTTP
 	}
+}
+
+// Returns the key used to rate-limit the client that sent the request
+// This server is only ever reached directly through tsnet, never behind a reverse proxy or load balancer, so r.RemoteAddr is the caller's real Tailscale IP and is trusted here
+// Funnel connections are the exception: their r.RemoteAddr is the Tailscale relay, which would put every public client in the same bucket, so the original client IP from the Funnel connection is used instead
+// IPv6 addresses are canonicalized to their /64 prefix, so a single client cannot dodge the limit by rotating addresses within its subnet
+func rateLimitKey(r *http.Request) string {
+	ip := funnelClientIP(r)
+	if ip == "" {
+		var err error
+		ip, _, err = net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
+	}
+	return httprate.CanonicalizeIP(ip)
 }
 
 // Rejects any request that carries a body (Content-Length > 0, or chunked encoding with any bytes available)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/italypaleale/go-kit/httpserver"
 	"github.com/italypaleale/go-kit/tsnetserver"
+	"tailscale.com/tailcfg"
 
 	"github.com/italypaleale/tsiam/pkg/config"
 	"github.com/italypaleale/tsiam/pkg/jwks"
@@ -90,11 +91,11 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 
 	// Create JWT token
 	token, err := jwks.NewToken(s.signingKey, jwks.TokenRequest{
-		Issuer:   s.tokenIssuer(),
-		Audience: audience,
-		Lifetime: cfg.Tokens.Lifetime,
+		Issuer:    s.tokenIssuer(),
+		Audience:  audience,
+		Lifetime:  cfg.Tokens.Lifetime,
 		Subject:   resolveSubject(cfg, whois, matchedCap),
-		Whois:     whois,
+		Whois:     identityClaimWhois(whois, cfg.Tokens.IncludeCapabilities),
 		ClaimName: cfg.Tokens.ClaimName,
 	})
 	if err != nil {
@@ -189,6 +190,21 @@ func sanitizeWhois(whois tsnetserver.TailscaleWhoIs) tsnetserver.TailscaleWhoIs 
 	return whois
 }
 
+// Returns the whois payload to embed in the identity claim of issued tokens
+// Tokens are signed but not encrypted, so everything in the payload is readable by every relying party and by anyone the token is shown to
+// tsiam's own capability grants are kept only when the operator opts in with `tokens.includeCapabilities`
+func identityClaimWhois(whois tsnetserver.TailscaleWhoIs, includeCapabilities bool) tsnetserver.TailscaleWhoIs {
+	// Build a new map instead of deleting keys
+	capValues, ok := whois.CapMap[tsnet.AudienceCapability]
+	whois.CapMap = nil
+	if includeCapabilities && ok {
+		whois.CapMap = tailcfg.PeerCapMap{
+			tsnet.AudienceCapability: capValues,
+		}
+	}
+	return whois
+}
+
 // Returns the value to use for the JWT `sub` claim, based on the configured subject-claim source
 // Defaults to the stable Tailscale node identifier when the configured value is unrecognized, when the configured value is "capability" but the matched grant has no `subject`, or when the caller has no capability at all (only reachable when `allowEmptyNodeCapability` is true)
 func resolveSubject(cfg *config.Config, whois tsnetserver.TailscaleWhoIs, matchedCap tsnet.TsiamCapability) string {
@@ -230,11 +246,8 @@ func extractAudience(r *http.Request) (string, error) {
 	}
 
 	// Reject control / non-printable bytes
-	// Audiences end up in JWT claims and in log lines, so a CR/LF or other control byte here would let an attacker inject log lines or break consumers that don't quote the audience
-	for _, c := range res {
-		if c < 0x20 || c == 0x7f {
-			return "", errAudienceInvalidChars
-		}
+	if config.HasControlChars(res) {
+		return "", errAudienceInvalidChars
 	}
 
 	return res, nil

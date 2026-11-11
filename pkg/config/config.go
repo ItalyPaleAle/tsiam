@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"path/filepath"
@@ -94,6 +93,11 @@ type ConfigTokens struct {
 	// Note: This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always `italypaleale.me/tsiam`
 	// +default "italypaleale.me/tsiam"
 	ClaimName string `yaml:"claimName"`
+
+	// If true, the identity claim includes the caller's tsiam capability grants (the `italypaleale.me/tsiam` values from Tailscale ACL grants) under the `capMap` field
+	// Tokens are signed but not encrypted, so when enabled every relying party can read the caller's `allowedAudiences` and `subject` grant values
+	// +default false
+	IncludeCapabilities bool `yaml:"includeCapabilities"`
 }
 
 // Allowed values for ConfigTokens.SubjectClaim
@@ -227,13 +231,6 @@ type internal struct {
 	configFileLoaded string // Path to the config file that was loaded
 }
 
-// String implements fmt.Stringer and prints out the config for debugging
-func (c *Config) String() string {
-	//nolint:errchkjson,musttag
-	enc, _ := json.Marshal(c)
-	return string(enc)
-}
-
 // GetLoadedConfigPath returns the path to the config file that was loaded
 func (c *Config) GetLoadedConfigPath() string {
 	return c.internal.configFileLoaded
@@ -286,19 +283,9 @@ func (c *Config) Validate(logger *slog.Logger) error {
 	}
 
 	// Audience configuration
-	if len(c.Tokens.AllowedAudiences) == 0 {
-		return errors.New("configuration option 'tokens.allowedAudiences' must contain at least one audience")
-	}
-	// Normalize and validate each audience
-	for i, aud := range c.Tokens.AllowedAudiences {
-		trimmed := strings.TrimSpace(aud)
-		if trimmed == "" {
-			return errors.New("configuration option 'tokens.allowedAudiences' contains an empty audience")
-		}
-		if len(trimmed) > 512 {
-			return errors.New("configuration option 'tokens.allowedAudiences' contains an audience exceeding 512 characters")
-		}
-		c.Tokens.AllowedAudiences[i] = trimmed
+	err := c.validateAllowedAudiences()
+	if err != nil {
+		return err
 	}
 
 	// Signing key algorithm
@@ -370,6 +357,44 @@ func (c *Config) Validate(logger *slog.Logger) error {
 	}
 
 	return nil
+}
+
+// Normalizes and validates each entry in tokens.allowedAudiences
+func (c *Config) validateAllowedAudiences() error {
+	if len(c.Tokens.AllowedAudiences) == 0 {
+		return errors.New("configuration option 'tokens.allowedAudiences' must contain at least one audience")
+	}
+
+	for i, aud := range c.Tokens.AllowedAudiences {
+		trimmed := strings.TrimSpace(aud)
+		if trimmed == "" {
+			return errors.New("configuration option 'tokens.allowedAudiences' contains an empty audience")
+		}
+
+		if len(trimmed) > 512 {
+			return errors.New("configuration option 'tokens.allowedAudiences' contains an audience exceeding 512 characters")
+		}
+
+		// Requested audiences with control characters are rejected at request time, so an entry containing them could never be matched
+		if HasControlChars(trimmed) {
+			return errors.New("configuration option 'tokens.allowedAudiences' contains an audience with control or non-printable characters")
+		}
+
+		c.Tokens.AllowedAudiences[i] = trimmed
+	}
+
+	return nil
+}
+
+// HasControlChars returns true if s contains ASCII control characters (0x00-0x1F) or DEL (0x7F)
+// Audiences end up in JWT claims and in log lines, so a CR/LF or other control byte would let an attacker inject log lines or break consumers that don't quote the audience
+func HasControlChars(s string) bool {
+	for _, c := range s {
+		if c < 0x20 || c == 0x7f {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Config) GetTSNetStateDir() string {

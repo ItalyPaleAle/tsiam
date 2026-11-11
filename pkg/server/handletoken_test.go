@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tailscale.com/tailcfg"
+	"tailscale.com/tailcfg/peercap"
 
 	"github.com/italypaleale/tsiam/pkg/config"
 	"github.com/italypaleale/tsiam/pkg/jwks"
@@ -298,6 +299,109 @@ func TestHandlePostToken_TaggedNodeBlanksUserLoginInClaim(t *testing.T) {
 	if present {
 		assert.Empty(t, v, "tagged-node UserLoginName must be blanked in the tsiam claim")
 	}
+}
+
+func TestIdentityClaimWhois(t *testing.T) {
+	const otherCap = peercap.Cap("example.com/other-app")
+	tsiamGrant := tailcfg.RawMessage(`{"allowedAudiences":["` + testAudience + `"],"subject":"workload-a"}`)
+	otherGrant := tailcfg.RawMessage(`{"secret":"value"}`)
+
+	newWhois := func() tsnetserver.TailscaleWhoIs {
+		whois := defaultWhois()
+		whois.CapMap = tailcfg.PeerCapMap{
+			tsnet.AudienceCapability: []tailcfg.RawMessage{tsiamGrant},
+			otherCap:                 []tailcfg.RawMessage{otherGrant},
+		}
+		return whois
+	}
+
+	t.Run("Capabilities are omitted by default", func(t *testing.T) {
+		whois := newWhois()
+		res := identityClaimWhois(whois, false)
+		assert.Nil(t, res.CapMap)
+		assert.Equal(t, whois.NodeID, res.NodeID)
+		assert.Equal(t, whois.Name, res.Name)
+		assert.Equal(t, whois.UserLoginName, res.UserLoginName)
+	})
+
+	t.Run("Only tsiam's capability is included when enabled", func(t *testing.T) {
+		res := identityClaimWhois(newWhois(), true)
+		assert.Equal(t, tailcfg.PeerCapMap{
+			tsnet.AudienceCapability: []tailcfg.RawMessage{tsiamGrant},
+		}, res.CapMap)
+	})
+
+	t.Run("No capability map when enabled but the caller has no tsiam grant", func(t *testing.T) {
+		whois := newWhois()
+		delete(whois.CapMap, tsnet.AudienceCapability)
+		res := identityClaimWhois(whois, true)
+		assert.Nil(t, res.CapMap)
+	})
+
+	t.Run("Input whois is not modified", func(t *testing.T) {
+		// The handler keeps using its whois copy after building the claim payload, so the shared map must be left intact
+		whois := newWhois()
+		_ = identityClaimWhois(whois, false)
+		_ = identityClaimWhois(whois, true)
+		assert.Len(t, whois.CapMap, 2)
+		assert.Contains(t, whois.CapMap, tsnet.AudienceCapability)
+		assert.Contains(t, whois.CapMap, otherCap)
+	})
+}
+
+func TestHandlePostToken_IdentityClaimCapabilities(t *testing.T) {
+	const otherCap = peercap.Cap("example.com/other-app")
+
+	// Returns the identity claim of a token issued to a caller holding both a tsiam grant and a grant for another application
+	issue := func(t *testing.T, includeCapabilities bool) map[string]any {
+		t.Helper()
+
+		s, restore := newTestServer(t, func(c *config.Config) {
+			c.Tokens.IncludeCapabilities = includeCapabilities
+		}, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+			whois := defaultWhois()
+			whois.CapMap[otherCap] = []tailcfg.RawMessage{
+				tailcfg.RawMessage(`{"secret":"value"}`),
+			}
+			return whois, nil
+		})
+		defer restore()
+
+		rr := postToken(t, s, "?resource="+testAudience)
+		require.Equal(t, http.StatusOK, rr.Code, "body: %s", rr.Body.String())
+
+		//nolint:tagliatelle
+		var resp struct {
+			AccessToken string `json:"access_token"`
+		}
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+
+		parsed, err := jwt.Parse([]byte(resp.AccessToken),
+			jwt.WithKey(mustAlg(t, s), s.signingKey),
+		)
+		require.NoError(t, err)
+
+		claim, err := jwt.Get[map[string]any](parsed, "italypaleale.me/tsiam")
+		require.NoError(t, err)
+		return claim
+	}
+
+	t.Run("Omitted by default", func(t *testing.T) {
+		claim := issue(t, false)
+		assert.NotContains(t, claim, "capMap")
+		assert.Equal(t, testWhoisNode, claim["nodeId"])
+	})
+
+	t.Run("Only tsiam's grants are included when enabled", func(t *testing.T) {
+		claim := issue(t, true)
+		require.Contains(t, claim, "capMap")
+		capMap, ok := claim["capMap"].(map[string]any)
+		require.True(t, ok, "capMap should be a JSON object")
+		assert.Len(t, capMap, 1)
+		assert.Equal(t, []any{
+			map[string]any{"allowedAudiences": []any{testAudience}},
+		}, capMap["italypaleale.me/tsiam"])
+	})
 }
 
 func TestHandlePostToken_CustomClaimName(t *testing.T) {
