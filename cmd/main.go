@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
+	"strings"
 	"time"
 
 	configkit "github.com/italypaleale/go-kit/config"
@@ -105,9 +107,24 @@ func main() {
 		return
 	}
 
+	// If we were given an IDToken or IDTokenFile, use them
+	idToken := cfg.TSNet.IDToken
+	if cfg.TSNet.IDTokenFile != "" {
+		idToken, err = readIDTokenFile(cfg.TSNet.IDTokenFile)
+		if err != nil {
+			shutdowns.Run(log)
+			slogkit.FatalError(log, "Failed to read tsnet ID token file", err)
+
+			return
+		}
+	}
+
 	// Init tsnetServer
 	ts, err := tsnetserver.NewTSNetServer(ctx, tsnetserver.NewTSNetServerOpts{
 		Hostname:      cfg.TSNet.Hostname,
+		ClientID:      cfg.TSNet.ClientID,
+		IDToken:       idToken, // This is pulled from cfg, either IDToken or IDTokenFile
+		Audience:      cfg.TSNet.Audience,
 		AuthKey:       cfg.TSNet.AuthKey,
 		StateDir:      cfg.GetTSNetStateDir(),
 		Ephemeral:     cfg.TSNet.Ephemeral,
@@ -170,4 +187,18 @@ func (s *shutdownManager) Run(log *slog.Logger) {
 	if err != nil {
 		log.Error("Error shutting down services", slog.Any("error", err))
 	}
+}
+
+func readIDTokenFile(filePath string) (string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", errors.New("token file is empty")
+	}
+
+	return token, nil
 }

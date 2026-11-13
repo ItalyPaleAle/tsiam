@@ -117,6 +117,26 @@ type ConfigTSNet struct {
 	// If empty, tsnet will rely on existing state in the database.
 	AuthKey string `yaml:"authKey"`
 
+	// ClientID to use for the tsnet node. Takes priority over TS_CLIENT_ID.
+	// Optional query attributes can be appended, e.g. `?ephemeral=false&preauthorized=true`; without them the generated auth key is ephemeral
+	// If empty, not used
+	ClientID string `yaml:"clientId"`
+
+	// IDToken to use for workload identity federation into the tailnet.
+	// Takes priority over TS_ID_TOKEN
+	// If empty, not used
+	IDToken string `yaml:"idToken"`
+
+	// IDTokenFile reads the IDToken from a file to use for workload identity federation into the tailnet.
+	// Takes priority over TS_ID_TOKEN
+	// If empty, not used
+	IDTokenFile string `yaml:"idTokenFile"`
+
+	// Audience to use for workload identity federation into the tailnet
+	// Takes priority over TS_AUDIENCE
+	// If empty, not used
+	Audience string `yaml:"audience"`
+
 	// Directory where tsnet stores its state.
 	// If empty, defaults to a folder next to the loaded config file.
 	StateDir string `yaml:"stateDir"`
@@ -354,6 +374,18 @@ func (c *Config) Validate(logger *slog.Logger) error {
 
 	default:
 		return errors.New("invalid value for 'signingKey.storage'")
+	}
+
+	if (c.TSNet.IDToken != "" || c.TSNet.IDTokenFile != "") && c.TSNet.Audience != "" {
+		return errors.New("cannot set both 'tsnet.idToken' or 'tsnet.idTokenFile' and 'tsnet.audience'")
+	}
+
+	if c.TSNet.IDToken != "" && c.TSNet.IDTokenFile != "" {
+		return errors.New("cannot set both 'tsnet.idToken' and 'tsnet.idTokenFile'")
+	}
+
+	if c.TSNet.AuthKey != "" && (c.TSNet.IDToken != "" || c.TSNet.IDTokenFile != "" || c.TSNet.Audience != "") {
+		return errors.New("if 'tsnet.authKey' is set 'tsnet.idToken', 'tsnet.idTokenFile', and 'tsnet.audience' must not be")
 	}
 
 	return nil

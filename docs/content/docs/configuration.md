@@ -71,8 +71,11 @@ Create a Tailscale OAuth client in the admin portal, then:
 
 If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS, Azure, GCP, GitHub Actions), it can join the Tailnet using its own workload identity:
 
-- Set `TS_CLIENT_ID`
-- Set either `TS_ID_TOKEN` (provide a token directly) or `TS_AUDIENCE` (let tsnet request an ID token from a supported provider)
+- Set `TS_CLIENT_ID`, or `tsnet.clientId`
+- Provide the identity token in one of these ways:
+  - `tsnet.idTokenFile`: path to a file containing a token
+  - `tsnet.idToken` or `TS_ID_TOKEN`: the token itself
+  - `tsnet.audience` or `TS_AUDIENCE`: let tsnet request a token from a supported cloud provider
 - Add `tsnet.advertiseTags` to your config (for example `["tag:tsiam"]`)
 
 ## Configuration reference
@@ -83,6 +86,10 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 |--------|------|---------|-------------|
 | `tsnet.hostname` | string | `"tsiam"` | Hostname for this node on the Tailnet |
 | `tsnet.authKey` | string | — | Tailscale auth key for automatic node registration |
+| `tsnet.clientId` | string | - | Tailscale client ID for Workload Identity Federation. Optional attributes can be appended e.g. `?ephemeral=false&preauthorized=true` |
+| `tsnet.idToken` | string | - | OIDC token for Workload Identity Federation |
+| `tsnet.idTokenFile` | string | - | Path to a file containing an OIDC token, e.g. a projected service account token in Kubernetes |
+| `tsnet.audience` | string | - | Audience used to request an ID token from a supported cloud provider |
 | `tsnet.stateDir` | string | — | Directory for tsnet state (defaults to a folder next to the config file) |
 | `tsnet.ephemeral` | boolean | `false` | If true, the node is ephemeral and not persisted in the Tailnet |
 | `tsnet.advertiseTags` | list | — | Tags to apply to this node, used for ACL enforcement |
