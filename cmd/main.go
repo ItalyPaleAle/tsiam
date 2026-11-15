@@ -123,7 +123,7 @@ func main() {
 	ts, err := tsnetserver.NewTSNetServer(ctx, tsnetserver.NewTSNetServerOpts{
 		Hostname:      cfg.TSNet.Hostname,
 		ClientID:      cfg.TSNet.ClientID,
-		IDToken:       idToken, // This is pulled from cfg, either IDToken or IDTokenFile
+		IDToken:       idToken,
 		Audience:      cfg.TSNet.Audience,
 		AuthKey:       cfg.TSNet.AuthKey,
 		StateDir:      cfg.GetTSNetStateDir(),
