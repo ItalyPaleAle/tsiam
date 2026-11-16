@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"strconv"
 	"testing"
 
 	"github.com/italypaleale/go-kit/tsnetserver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tailscale.com/net/tsaddr"
 
 	"github.com/italypaleale/tsiam/pkg/config"
 )
@@ -107,15 +110,37 @@ func TestRateLimitKey(t *testing.T) {
 		assert.Equal(t, "100.64.0.1", keyFor(t, "100.64.0.1"))
 	})
 
-	t.Run("IPv6 addresses are canonicalized to their /64 prefix", func(t *testing.T) {
+	t.Run("Direct IPv6 request uses the full address", func(t *testing.T) {
+		// Many Tailscale nodes in a tailnet share the same /64 prefix, so each one needs its own bucket
 		withFunnelClientIP(t, "")
-		assert.Equal(t, keyFor(t, "[2001:db8:1:2::1]:1234"), keyFor(t, "[2001:db8:1:2::ffff]:1234"))
-		assert.NotEqual(t, keyFor(t, "[2001:db8:1:2::1]:1234"), keyFor(t, "[2001:db8:1:3::1]:1234"))
+		assert.Equal(t, "fd7a:115c:a1e0::1", keyFor(t, "[fd7a:115c:a1e0::1]:1234"))
+		assert.NotEqual(t, keyFor(t, "[fd7a:115c:a1e0::1]:1234"), keyFor(t, "[fd7a:115c:a1e0::2]:1234"))
+	})
+
+	t.Run("Direct IPv6 request in the Tailscale 4to6 range uses the node's IPv4 address", func(t *testing.T) {
+		withFunnelClientIP(t, "")
+		ip6 := tsaddr.Tailscale4To6(netip.MustParseAddr("100.64.0.1"))
+		assert.Equal(t, "100.64.0.1", keyFor(t, netip.AddrPortFrom(ip6, 1234).String()))
+
+		other := tsaddr.Tailscale4To6(netip.MustParseAddr("100.64.0.2"))
+		assert.NotEqual(t, keyFor(t, netip.AddrPortFrom(ip6, 1234).String()), keyFor(t, netip.AddrPortFrom(other, 1234).String()))
 	})
 
 	t.Run("Funneled request uses the original client IP rather than the relay", func(t *testing.T) {
 		withFunnelClientIP(t, "203.0.113.7")
 		assert.Equal(t, "203.0.113.7", keyFor(t, "100.100.100.100:443"))
+	})
+
+	t.Run("Funneled IPv6 addresses are canonicalized to their /64 prefix", func(t *testing.T) {
+		withFunnelClientIP(t, "2001:db8:1:2::1")
+		a := keyFor(t, "100.100.100.100:443")
+		withFunnelClientIP(t, "2001:db8:1:2::ffff")
+		b := keyFor(t, "100.100.100.100:443")
+		withFunnelClientIP(t, "2001:db8:1:3::1")
+		c := keyFor(t, "100.100.100.100:443")
+
+		assert.Equal(t, a, b)
+		assert.NotEqual(t, a, c)
 	})
 }
 
@@ -174,6 +199,144 @@ func TestRouteRateLimits(t *testing.T) {
 
 		// Another client is unaffected
 		assert.Equal(t, http.StatusOK, do(t, s, http.MethodGet, "/.well-known/jwks.json", "100.64.0.2:1234"))
+	})
+}
+
+// Exercises the Funnel gate through the full handler chain
+func TestRequireFunnelAllowed(t *testing.T) {
+	newServer := func(t *testing.T) *Server {
+		t.Helper()
+		s, restore := newTestServer(t, func(c *config.Config) {
+			c.Tokens.RateLimitPerMinute = 3
+		}, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+			return defaultWhois(), nil
+		})
+		t.Cleanup(restore)
+		s.initAppServer()
+		return s
+	}
+
+	withFunnel := func(t *testing.T, clientIP string) {
+		t.Helper()
+		prevFunneled, prevIP := isFunneledRequest, funnelClientIP
+		isFunneledRequest = func(*http.Request) bool { return true }
+		funnelClientIP = func(*http.Request) string { return clientIP }
+		t.Cleanup(func() { isFunneledRequest, funnelClientIP = prevFunneled, prevIP })
+	}
+
+	serve := func(t *testing.T, s *Server, method string, path string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequestWithContext(t.Context(), method, path, nil)
+		req.Header.Set(tsiamHeaderName, "1")
+		rr := httptest.NewRecorder()
+		s.handler.ServeHTTP(rr, req)
+		return rr
+	}
+
+	t.Run("Public endpoints are reachable", func(t *testing.T) {
+		s := newServer(t)
+		withFunnel(t, "203.0.113.1")
+
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			for _, path := range []string{"/.well-known/jwks.json", "/.well-known/openid-configuration"} {
+				assert.Equal(t, http.StatusOK, serve(t, s, method, path).Code, "%s %s", method, path)
+			}
+		}
+	})
+
+	t.Run("Everything else returns 404", func(t *testing.T) {
+		s := newServer(t)
+		withFunnel(t, "203.0.113.2")
+
+		// Without the gate, the mux would respond to some of these with 405 and an Allow header, or with a redirect
+		requests := []struct{ method, path string }{
+			{http.MethodPost, "/token"},
+			{http.MethodPut, "/token"},
+			{http.MethodOptions, "/token"},
+			{http.MethodGet, "/token"},
+			{http.MethodPost, "/.well-known/jwks.json"},
+			{http.MethodGet, "/healthz"},
+			{http.MethodDelete, "/healthz"},
+			{http.MethodGet, "/"},
+			{http.MethodGet, "//.well-known/jwks.json"},
+		}
+		for _, req := range requests {
+			rr := serve(t, s, req.method, req.path)
+			assert.Equal(t, http.StatusNotFound, rr.Code, "%s %s", req.method, req.path)
+			assert.Empty(t, rr.Header().Get("Allow"), "%s %s", req.method, req.path)
+			assert.Empty(t, rr.Header().Get("Location"), "%s %s", req.method, req.path)
+			// The token rate limiter would set this header to 3, overwriting the gate's value
+			assert.Equal(t, strconv.Itoa(publicRateLimitPerSecond), rr.Header().Get("X-RateLimit-Limit"), "%s %s should not reach the token rate limiter", req.method, req.path)
+		}
+	})
+
+	t.Run("Rejected requests count against the public limit", func(t *testing.T) {
+		s := newServer(t)
+		withFunnel(t, "203.0.113.3")
+
+		for i := range publicRateLimitPerSecond {
+			require.Equal(t, http.StatusNotFound, serve(t, s, http.MethodPut, "/token").Code, "request %d of the burst should be allowed", i+1)
+		}
+		assert.Equal(t, http.StatusTooManyRequests, serve(t, s, http.MethodGet, "/.well-known/jwks.json").Code)
+
+		// Another client is unaffected
+		withFunnel(t, "203.0.113.4")
+		assert.Equal(t, http.StatusOK, serve(t, s, http.MethodGet, "/.well-known/jwks.json").Code)
+	})
+
+	t.Run("Allowed requests are counted once", func(t *testing.T) {
+		s := newServer(t)
+		withFunnel(t, "203.0.113.5")
+
+		// The gate and the route have separate limiters, so each allowed request is counted once and the client gets the full limit
+		for i := range publicRateLimitPerSecond {
+			require.Equal(t, http.StatusOK, serve(t, s, http.MethodGet, "/.well-known/jwks.json").Code, "request %d of the burst should be allowed", i+1)
+		}
+		assert.Equal(t, http.StatusTooManyRequests, serve(t, s, http.MethodGet, "/.well-known/jwks.json").Code)
+	})
+
+	t.Run("Tailnet requests are not affected", func(t *testing.T) {
+		s := newServer(t)
+
+		// The mux's own 405 response still applies to tailnet requests
+		assert.Equal(t, http.StatusMethodNotAllowed, serve(t, s, http.MethodPut, "/token").Code)
+		assert.Equal(t, http.StatusNoContent, serve(t, s, http.MethodGet, "/healthz").Code)
+	})
+}
+
+func TestPanicRecovery(t *testing.T) {
+	newServer := func(t *testing.T, whoIs func(*http.Request) (tsnetserver.TailscaleWhoIs, error)) *Server {
+		t.Helper()
+		s, restore := newTestServer(t, nil, whoIs)
+		t.Cleanup(restore)
+		s.initAppServer()
+		return s
+	}
+
+	t.Run("Panic in a handler", func(t *testing.T) {
+		s := newServer(t, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+			panic("boom")
+		})
+
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token?resource="+testAudience, nil)
+		req.Header.Set(tsiamHeaderName, "1")
+		rr := httptest.NewRecorder()
+		s.handler.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	})
+
+	t.Run("Panic in an outer middleware", func(t *testing.T) {
+		s := newServer(t, nil)
+
+		// The Funnel gate runs outside of logging and tracing, so only the outermost Recovery can catch this
+		prev := isFunneledRequest
+		isFunneledRequest = func(*http.Request) bool { panic("boom") }
+		t.Cleanup(func() { isFunneledRequest = prev })
+
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/jwks.json", nil)
+		rr := httptest.NewRecorder()
+		s.handler.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 	})
 }
 

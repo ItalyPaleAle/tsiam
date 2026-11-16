@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/go-chi/httprate"
+	"tailscale.com/net/tsaddr"
 
 	"github.com/italypaleale/go-kit/httpserver"
 	"github.com/italypaleale/go-kit/tsnetserver"
@@ -36,6 +38,7 @@ func rejectOversizedRequest(maxSize int64) httpserver.Middleware {
 				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 				return
 			}
+
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -64,17 +67,34 @@ func rateLimit(limit int, window time.Duration) httpserver.MiddlewareFunc {
 // Returns the key used to rate-limit the client that sent the request
 // This server is only ever reached directly through tsnet, never behind a reverse proxy or load balancer, so r.RemoteAddr is the caller's real Tailscale IP and is trusted here
 // Funnel connections are the exception: their r.RemoteAddr is the Tailscale relay, which would put every public client in the same bucket, so the original client IP from the Funnel connection is used instead
-// IPv6 addresses are canonicalized to their /64 prefix, so a single client cannot dodge the limit by rotating addresses within its subnet
 func rateLimitKey(r *http.Request) string {
+	// Public clients reached through Funnel have their IPv6 addresses canonicalized to the /64 prefix, so a single client cannot dodge the limit by rotating addresses within its subnet
 	ip := funnelClientIP(r)
-	if ip == "" {
-		var err error
-		ip, _, err = net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			ip = r.RemoteAddr
-		}
+	if ip != "" {
+		return httprate.CanonicalizeIP(ip)
 	}
-	return httprate.CanonicalizeIP(ip)
+
+	// Tailnet peers use their full address instead
+	// Tailscale assigns each node a single IPv6 address, and many nodes in a tailnet share the same /64 prefix, so masking would put every IPv6 caller in one bucket
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return host
+	}
+
+	addr = addr.Unmap().WithZone("")
+
+	// IPv6 addresses in the Tailscale 4to6 range map 1:1 to the node's IPv4 address, so a dual-stack node gets a single bucket
+	v4, ok := tsaddr.Tailscale6to4(addr)
+	if ok {
+		return v4.String()
+	}
+
+	return addr.String()
 }
 
 // Rejects any request that carries a body (Content-Length > 0, or chunked encoding with any bytes available)
@@ -96,6 +116,42 @@ func requireEmptyBody(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		next(w, r)
+	}
+}
+
+// Returns a middleware that responds with 404 to every Funnel request except GET or HEAD requests for the public endpoints
+// It runs before logging, tracing, and routing, so requests from the internet are cheap to reject
+// Every Funnel request, including rejected ones, counts against limit
+func requireFunnelAllowed(limit httpserver.MiddlewareFunc) httpserver.Middleware {
+	return func(next http.Handler) http.Handler {
+		limited := limit(func(w http.ResponseWriter, r *http.Request) {
+			allowed := (r.Method == http.MethodGet || r.Method == http.MethodHead) && isAllowedFunnelPath(r.URL.Path)
+			if !allowed {
+				http.NotFound(w, r)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !isFunneledRequest(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			limited(w, r)
+		})
+	}
+}
+
+// Returns true if the path is reachable over Funnel
+func isAllowedFunnelPath(path string) bool {
+	switch path {
+	case "/.well-known/jwks.json", "/.well-known/openid-configuration":
+		return true
+	default:
+		return false
 	}
 }
 

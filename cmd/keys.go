@@ -68,7 +68,7 @@ func getKeyStorage() (s keystorage.KeyStorage, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get Azure credentials object: %w", err)
 		}
-		s, err = keystorage.NewAzureKeyVaultKeyStorage(akvk.VaultURL, akvk.KeyName, akvk.StoragePath, creds)
+		s, err = keystorage.NewAzureKeyVaultKeyStorage(akvk.VaultURL, akvk.KeyName, akvk.KeyVersion, akvk.StoragePath, creds)
 	case "azurekeyvaultsecrets":
 		akvs := cfg.SigningKey.AzureKeyVaultSecrets
 		creds, err = getAzureKeyVaultCredentials(akvs.TenantID, akvs.ClientID, akvs.ClientSecret)

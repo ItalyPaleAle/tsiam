@@ -32,7 +32,7 @@ func Get() *Config {
 	return config
 }
 
-// GetDefaultConfig returns the default configuration.
+// GetDefaultConfig returns the default configuration
 func GetDefaultConfig() *Config {
 	return &Config{
 		Logs: ConfigLogs{

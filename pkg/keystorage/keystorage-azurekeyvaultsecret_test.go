@@ -231,3 +231,9 @@ func TestAzureKeyVaultSecretStorage_RoundTrip(t *testing.T) {
 
 	mockClient.AssertExpectations(t)
 }
+
+func TestSecretVersion(t *testing.T) {
+	assert.Empty(t, secretVersion(nil))
+	assert.Equal(t, "abc123", secretVersion(new(azsecrets.ID("https://myvault.vault.azure.net/secrets/test-secret/abc123"))))
+	assert.Empty(t, secretVersion(new(azsecrets.ID("https://myvault.vault.azure.net/secrets/test-secret"))))
+}

@@ -11,6 +11,35 @@ tsnet:
   ##   If empty, tsnet will rely on existing state in the database.
   #authKey: ""
 
+  ## tsnet.clientId (string)
+  ## Description:
+  ##   ClientID to use for the tsnet node.
+  ##   Takes priority over TS_CLIENT_ID.
+  ##   Optional query attributes can be appended, e.g. `?ephemeral=false&preauthorized=true` - without them the generated auth key is ephemeral.
+  ##   If empty, not used
+  #clientId: ""
+
+  ## tsnet.idToken (string)
+  ## Description:
+  ##   IDToken to use for workload identity federation into the tailnet.
+  ##   Takes priority over TS_ID_TOKEN
+  ##   If empty, not used
+  #idToken: ""
+
+  ## tsnet.idTokenFile (string)
+  ## Description:
+  ##   IDTokenFile reads the IDToken from a file to use for workload identity federation into the tailnet.
+  ##   Takes priority over TS_ID_TOKEN
+  ##   If empty, not used
+  #idTokenFile: ""
+
+  ## tsnet.audience (string)
+  ## Description:
+  ##   Audience to use for workload identity federation into the tailnet
+  ##   Takes priority over TS_AUDIENCE
+  ##   If empty, not used
+  #audience: ""
+
   ## tsnet.stateDir (string)
   ## Description:
   ##   Directory where tsnet stores its state.
@@ -41,7 +70,8 @@ tsnet:
 logs:
   ## logs.level (string)
   ## Description:
-  ##   Controls log level and verbosity. Supported values: `debug`, `info` (default), `warn`, `error`.
+  ##   Controls log level and verbosity.
+  ##   Supported values: `debug`, `info` (default), `warn`, `error`.
   ## Default: "info"
   #level: "info"
 
@@ -99,27 +129,27 @@ tokens:
   ##   Allowed values:
   ##     - "nodeId" (default, recommended): the unique, stable Tailscale node identifier
   ##     - "name": the Tailscale node name, which is the MagicDNS name without trailing dot - See WARNING below
-  ##     - "capability": the `subject` field of the Tailscale ACL grant that authorized the requested audience. Lets multiple nodes share a workload identity by setting the same `subject` in their grant; falls back to the stable node ID when the matching grant has no `subject` set (or when the caller has no capability and `allowEmptyNodeCapability` is true).
+  ##     - "capability": the `subject` field of the Tailscale ACL grant that authorized the requested audience. Lets multiple nodes share a workload identity by setting the same `subject` in their grant. Falls back to the stable node ID when the matching grant has no `subject` set, or when the caller has no capability and `allowEmptyNodeCapability` is true.
   ##
-  ##   WARNING for `"name"`: node names CAN be reused once a device is removed from the tailnet, which means a relying-party trust policy keyed on a node name can be silently re-targeted by whoever creates the next device with that name
-  ##   Only choose `"name"` if you have relying parties that cannot be reconfigured to consume the stable node ID, and treat the node name as a soft identifier (e.g. require additional checks on the `nodeId` field of the identity claim)
+  ##   WARNING for `"name"`: node names CAN be reused once a device is removed from the tailnet, which means a relying-party trust policy keyed on a node name can be silently re-targeted by whoever creates the next device with that name.
+  ##   Only choose `"name"` if you have relying parties that cannot be reconfigured to consume the stable node ID, and treat the node name as a soft identifier (e.g. require additional checks on the `nodeId` field of the identity claim).
   ##
-  ##   In all cases the full whois payload (node ID, name, tags, user, IPs) is also exposed under the identity claim, whose name is set by `claimName`
+  ##   In all cases the full whois payload (node ID, name, tags, user, IPs) is also exposed under the identity claim, whose name is set by `claimName`.
   ## Default: "nodeId"
   #subjectClaim: "nodeId"
 
   ## tokens.claimName (string)
   ## Description:
-  ##   Name of the custom JWT claim that carries the caller's Tailscale identity (node ID, name, tags, user, IPs)
-  ##   Must not be one of the registered claims that tsiam sets itself: `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`
-  ##   Note: This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always `italypaleale.me/tsiam`
+  ##   Name of the custom JWT claim that carries the caller's Tailscale identity (node ID, name, tags, user, IPs).
+  ##   Must not be one of the registered claims that tsiam sets itself: `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`.
+  ##   Note: This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always .`italypaleale.me/tsiam`
   ## Default: "italypaleale.me/tsiam"
   #claimName: "italypaleale.me/tsiam"
 
   ## tokens.includeCapabilities (boolean)
   ## Description:
-  ##   If true, the identity claim includes the caller's tsiam capability grants (the `italypaleale.me/tsiam` values from Tailscale ACL grants) under the `capMap` field
-  ##   Tokens are signed but not encrypted, so when enabled every relying party can read the caller's `allowedAudiences` and `subject` grant values
+  ##   If true, the identity claim includes the caller's tsiam capability grants (the `italypaleale.me/tsiam` values from Tailscale ACL grants) under the `capMap` .field
+  ##   Tokens are signed but not encrypted, so when enabled every relying party can read the caller's `allowedAudiences` and `subject` grant values.
   ## Default: false
   #includeCapabilities: false
 
@@ -133,7 +163,8 @@ signingKey:
 
   ## signingKey.algorithm (string)
   ## Description:
-  ##   Signing algorithm to use. Supported values: RS256, ES256, ES384, ES512, EdDSA.
+  ##   Signing algorithm to use.
+  ##   Supported values: RS256, ES256, ES384, ES512, EdDSA.
   ## Default: "ES256"
   #algorithm: "ES256"
 
@@ -170,6 +201,14 @@ signingKey:
     ##   The key is unwrapped using Azure Key Vault on app startup.
     ## Required
     keyName: ""
+
+    ## signingKey.azureKeyVaultKeys.keyVersion (string)
+    ## Description:
+    ##   KeyVersion is the version of the key in Azure Key Vault used to wrap new signing keys.
+    ##   If empty or "latest", the latest version of the key is used.
+    ##   The wrapped signing key file records the version that wrapped it, and tsiam always unwraps it with that version.
+    ##   After rotating the key in Azure Key Vault, keep that version enabled.
+    #keyVersion: ""
 
     ## signingKey.azureKeyVaultKeys.storagePath (string)
     ## Description:

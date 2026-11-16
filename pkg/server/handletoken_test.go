@@ -99,6 +99,50 @@ func TestHandlePostToken_WhoIsFailure(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "node_identity")
 }
 
+func TestHandlePostToken_NodeNotInTailnet(t *testing.T) {
+	t.Run("shared node", func(t *testing.T) {
+		s, restore := newTestServer(t, nil, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+			// The name is in this tailnet's domain, so only the Shared flag can cause the rejection
+			whois := defaultWhois()
+			whois.Shared = true
+			return whois, nil
+		})
+		defer restore()
+
+		rr := postToken(t, s, "?resource="+testAudience)
+
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+		assert.Contains(t, rr.Body.String(), "node_not_in_tailnet")
+	})
+
+	t.Run("node name in another tailnet's domain", func(t *testing.T) {
+		s, restore := newTestServer(t, nil, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+			whois := defaultWhois()
+			whois.Name = "alice.other-tailnet.ts.net"
+			return whois, nil
+		})
+		defer restore()
+
+		rr := postToken(t, s, "?resource="+testAudience)
+
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+		assert.Contains(t, rr.Body.String(), "node_not_in_tailnet")
+	})
+
+	t.Run("own hostname unknown", func(t *testing.T) {
+		s, restore := newTestServer(t, nil, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+			return defaultWhois(), nil
+		})
+		defer restore()
+		s.hostname = func() string { return "" }
+
+		rr := postToken(t, s, "?resource="+testAudience)
+
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+		assert.Contains(t, rr.Body.String(), "node_not_in_tailnet")
+	})
+}
+
 func TestHandlePostToken_MissingAudience(t *testing.T) {
 	s, restore := newTestServer(t, nil, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
 		return defaultWhois(), nil
@@ -253,7 +297,8 @@ func TestHandlePostToken_SubjectClaimSources(t *testing.T) {
 			var resp struct {
 				AccessToken string `json:"access_token"`
 			}
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+			err := json.Unmarshal(rr.Body.Bytes(), &resp)
+			require.NoError(t, err)
 
 			parsed, err := jwt.Parse([]byte(resp.AccessToken),
 				jwt.WithKey(mustAlg(t, s), s.signingKey),
@@ -284,7 +329,8 @@ func TestHandlePostToken_TaggedNodeBlanksUserLoginInClaim(t *testing.T) {
 	var resp struct {
 		AccessToken string `json:"access_token"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	require.NoError(t, err)
 
 	parsed, err := jwt.Parse([]byte(resp.AccessToken),
 		jwt.WithKey(mustAlg(t, s), s.signingKey),
@@ -374,7 +420,8 @@ func TestHandlePostToken_IdentityClaimCapabilities(t *testing.T) {
 		var resp struct {
 			AccessToken string `json:"access_token"`
 		}
-		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		require.NoError(t, err)
 
 		parsed, err := jwt.Parse([]byte(resp.AccessToken),
 			jwt.WithKey(mustAlg(t, s), s.signingKey),
@@ -420,7 +467,8 @@ func TestHandlePostToken_CustomClaimName(t *testing.T) {
 	var resp struct {
 		AccessToken string `json:"access_token"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	require.NoError(t, err)
 
 	parsed, err := jwt.Parse([]byte(resp.AccessToken),
 		jwt.WithKey(mustAlg(t, s), s.signingKey),

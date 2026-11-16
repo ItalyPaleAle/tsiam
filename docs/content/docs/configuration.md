@@ -83,7 +83,7 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 ### `tsnet`
 
 | Option | Type | Default | Description |
-|--------|------|---------|-------------|
+| --- | --- | --- | --- |
 | `tsnet.hostname` | string | `"tsiam"` | Hostname for this node on the Tailnet |
 | `tsnet.authKey` | string | — | Tailscale auth key for automatic node registration |
 | `tsnet.clientId` | string | - | Tailscale client ID for Workload Identity Federation. Optional attributes can be appended e.g. `?ephemeral=false&preauthorized=true` |
@@ -98,7 +98,7 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 ### `tokens`
 
 | Option | Type | Default | Description |
-|--------|------|---------|-------------|
+| --- | --- | --- | --- |
 | `tokens.lifetime` | duration | `"5m"` | Token lifetime (minimum: 1m, maximum: 1h) |
 | `tokens.allowedAudiences` | list | **required** | Audiences that can be requested; only these values will be issued |
 | `tokens.allowEmptyNodeCapability` | boolean | `false` | If true, nodes without an explicit ACL capability grant can request any globally-allowed audience |
@@ -109,7 +109,7 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 #### `tokens.subjectClaim` values
 
 | Value | Description |
-|-------|-------------|
+| --- | --- |
 | `"nodeId"` (default) | Stable Tailscale node identifier — recommended |
 | `"name"` | MagicDNS node name — **⚠ can be reused** if the device is removed and re-created |
 | `"capability"` | The `subject` field from the matching Tailscale ACL grant, allowing multiple nodes to share one workload identity |
@@ -117,31 +117,34 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 ### `signingKey`
 
 | Option | Type | Default | Description |
-|--------|------|---------|-------------|
+| --- | --- | --- | --- |
 | `signingKey.storage` | string | `"file"` | Storage backend: `file`, `memory`, `AzureKeyVaultKeys`, `AzureKeyVaultSecrets` |
 | `signingKey.algorithm` | string | `"ES256"` | Signing algorithm: `RS256`, `ES256`, `ES384`, `ES512`, `EdDSA` |
 
 **File storage** (`signingKey.storage: file`):
 
 | Option | Type | Default | Description |
-|--------|------|---------|-------------|
+| --- | --- | --- | --- |
 | `signingKey.file.storagePath` | string | **required** | Path to store the signing key (not encrypted on disk) |
 
 **Azure Key Vault Keys** (`signingKey.storage: AzureKeyVaultKeys`):
 
 | Option | Type | Default | Description |
-|--------|------|---------|-------------|
+| --- | --- | --- | --- |
 | `signingKey.azureKeyVaultKeys.vaultUrl` | string | **required** | Azure Key Vault URL (e.g. `https://myvault.vault.azure.net/`) |
-| `signingKey.azureKeyVaultKeys.keyName` | string | **required** | Name of the key used for wrapping/unwrapping |
+| `signingKey.azureKeyVaultKeys.keyName` | string | **required** | Name of the RSA key used for wrapping/unwrapping |
+| `signingKey.azureKeyVaultKeys.keyVersion` | string | latest | Version of the key used to wrap new signing keys; empty or `latest` uses the latest version |
 | `signingKey.azureKeyVaultKeys.storagePath` | string | **required** | Path to store the wrapped signing key on disk |
 | `signingKey.azureKeyVaultKeys.tenantId` | string | — | Azure AD tenant ID (uses `DefaultAzureCredential` if empty) |
 | `signingKey.azureKeyVaultKeys.clientId` | string | — | Azure AD application client ID |
 | `signingKey.azureKeyVaultKeys.clientSecret` | string | — | Azure AD application client secret |
 
+The wrapped signing key file records which version of the Key Vault key wrapped it, and tsiam always unwraps it with that version. After rotating the key in Key Vault, keep that version enabled, or tsiam won't be able to start.
+
 **Azure Key Vault Secrets** (`signingKey.storage: AzureKeyVaultSecrets`):
 
 | Option | Type | Default | Description |
-|--------|------|---------|-------------|
+| --- | --- | --- | --- |
 | `signingKey.azureKeyVaultSecrets.vaultUrl` | string | **required** | Azure Key Vault URL |
 | `signingKey.azureKeyVaultSecrets.secretName` | string | **required** | Name of the secret storing the signing key |
 | `signingKey.azureKeyVaultSecrets.tenantId` | string | — | Azure AD tenant ID |
@@ -151,7 +154,7 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 ### `logs`
 
 | Option | Type | Default | Description |
-|--------|------|---------|-------------|
+| --- | --- | --- | --- |
 | `logs.level` | string | `"info"` | Log level: `debug`, `info`, `warn`, `error` |
 | `logs.omitHealthChecks` | boolean | `true` | Suppress log lines for `/healthz` requests |
 | `logs.json` | boolean | auto | Emit JSON-formatted logs (defaults to `true` when no TTY is attached) |

@@ -76,7 +76,7 @@ func main() {
 
 	log.Info("Starting tsiam", slog.String("build", buildinfo.BuildDescription))
 
-	// Get a context that is canceled when the application receives a termination signal.
+	// Get a context that is canceled when the application receives a termination signal
 	ctx := signals.SignalContext(context.Background())
 
 	// Init appMetrics

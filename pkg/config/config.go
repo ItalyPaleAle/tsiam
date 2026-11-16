@@ -33,7 +33,8 @@ type Config struct {
 
 // ConfigLogs represents logging configuration
 type ConfigLogs struct {
-	// Controls log level and verbosity. Supported values: `debug`, `info` (default), `warn`, `error`.
+	// Controls log level and verbosity.
+	// Supported values: `debug`, `info` (default), `warn`, `error`.
 	// +default "info"
 	Level string `yaml:"level"`
 
@@ -79,23 +80,23 @@ type ConfigTokens struct {
 	// Allowed values:
 	//   - "nodeId" (default, recommended): the unique, stable Tailscale node identifier
 	//   - "name": the Tailscale node name, which is the MagicDNS name without trailing dot - See WARNING below
-	//   - "capability": the `subject` field of the Tailscale ACL grant that authorized the requested audience. Lets multiple nodes share a workload identity by setting the same `subject` in their grant; falls back to the stable node ID when the matching grant has no `subject` set (or when the caller has no capability and `allowEmptyNodeCapability` is true).
+	//   - "capability": the `subject` field of the Tailscale ACL grant that authorized the requested audience. Lets multiple nodes share a workload identity by setting the same `subject` in their grant. Falls back to the stable node ID when the matching grant has no `subject` set, or when the caller has no capability and `allowEmptyNodeCapability` is true.
 	//
-	// WARNING for `"name"`: node names CAN be reused once a device is removed from the tailnet, which means a relying-party trust policy keyed on a node name can be silently re-targeted by whoever creates the next device with that name
-	// Only choose `"name"` if you have relying parties that cannot be reconfigured to consume the stable node ID, and treat the node name as a soft identifier (e.g. require additional checks on the `nodeId` field of the identity claim)
+	// WARNING for `"name"`: node names CAN be reused once a device is removed from the tailnet, which means a relying-party trust policy keyed on a node name can be silently re-targeted by whoever creates the next device with that name.
+	// Only choose `"name"` if you have relying parties that cannot be reconfigured to consume the stable node ID, and treat the node name as a soft identifier (e.g. require additional checks on the `nodeId` field of the identity claim).
 	//
-	// In all cases the full whois payload (node ID, name, tags, user, IPs) is also exposed under the identity claim, whose name is set by `claimName`
+	// In all cases the full whois payload (node ID, name, tags, user, IPs) is also exposed under the identity claim, whose name is set by `claimName`.
 	// +default "nodeId"
 	SubjectClaim string `yaml:"subjectClaim"`
 
-	// Name of the custom JWT claim that carries the caller's Tailscale identity (node ID, name, tags, user, IPs)
-	// Must not be one of the registered claims that tsiam sets itself: `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`
-	// Note: This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always `italypaleale.me/tsiam`
+	// Name of the custom JWT claim that carries the caller's Tailscale identity (node ID, name, tags, user, IPs).
+	// Must not be one of the registered claims that tsiam sets itself: `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`.
+	// Note: This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always .`italypaleale.me/tsiam`
 	// +default "italypaleale.me/tsiam"
 	ClaimName string `yaml:"claimName"`
 
-	// If true, the identity claim includes the caller's tsiam capability grants (the `italypaleale.me/tsiam` values from Tailscale ACL grants) under the `capMap` field
-	// Tokens are signed but not encrypted, so when enabled every relying party can read the caller's `allowedAudiences` and `subject` grant values
+	// If true, the identity claim includes the caller's tsiam capability grants (the `italypaleale.me/tsiam` values from Tailscale ACL grants) under the `capMap` .field
+	// Tokens are signed but not encrypted, so when enabled every relying party can read the caller's `allowedAudiences` and `subject` grant values.
 	// +default false
 	IncludeCapabilities bool `yaml:"includeCapabilities"`
 }
@@ -117,8 +118,9 @@ type ConfigTSNet struct {
 	// If empty, tsnet will rely on existing state in the database.
 	AuthKey string `yaml:"authKey"`
 
-	// ClientID to use for the tsnet node. Takes priority over TS_CLIENT_ID.
-	// Optional query attributes can be appended, e.g. `?ephemeral=false&preauthorized=true`; without them the generated auth key is ephemeral
+	// ClientID to use for the tsnet node.
+	// Takes priority over TS_CLIENT_ID.
+	// Optional query attributes can be appended, e.g. `?ephemeral=false&preauthorized=true` - without them the generated auth key is ephemeral.
 	// If empty, not used
 	ClientID string `yaml:"clientId"`
 
@@ -164,7 +166,8 @@ type ConfigSigningKey struct {
 	// +default "file"
 	Storage string `yaml:"storage"`
 
-	// Signing algorithm to use. Supported values: RS256, ES256, ES384, ES512, EdDSA.
+	// Signing algorithm to use.
+	// Supported values: RS256, ES256, ES384, ES512, EdDSA.
 	// +default "ES256"
 	Algorithm string `yaml:"algorithm"`
 
@@ -200,6 +203,12 @@ type ConfigStorageAzureKeyVaultKeys struct {
 	// The key is unwrapped using Azure Key Vault on app startup.
 	// +required
 	KeyName string `yaml:"keyName,omitempty"`
+
+	// KeyVersion is the version of the key in Azure Key Vault used to wrap new signing keys.
+	// If empty or "latest", the latest version of the key is used.
+	// The wrapped signing key file records the version that wrapped it, and tsiam always unwraps it with that version.
+	// After rotating the key in Azure Key Vault, keep that version enabled.
+	KeyVersion string `yaml:"keyVersion,omitempty"`
 
 	// StoragePath is the path to store the wrapped signing key on disk.
 	// +required
@@ -261,7 +270,7 @@ func (c *Config) SetLoadedConfigPath(filePath string) {
 	c.internal.configFileLoaded = filePath
 }
 
-// GetInstanceID returns the instance ID.
+// GetInstanceID returns the instance ID
 func (c *Config) GetInstanceID() string {
 	return c.internal.instanceID
 }
@@ -360,6 +369,11 @@ func (c *Config) Validate(logger *slog.Logger) error {
 		}
 		if c.SigningKey.AzureKeyVaultKeys.StoragePath == "" {
 			return errors.New("configuration option 'signingKey.azureKeyVaultKeys.storagePath' must be set when 'signingKey.storage' is 'AzureKeyVaultKeys'")
+		}
+
+		keyVersion := c.SigningKey.AzureKeyVaultKeys.KeyVersion
+		if keyVersion == "" || strings.EqualFold(keyVersion, "latest") {
+			logger.Warn("Configuration option 'signingKey.azureKeyVaultKeys.keyVersion' is not set, so new signing keys are wrapped with the latest version of the Azure Key Vault key - set it to pin a version")
 		}
 
 	// Azure Key Vault Secrets

@@ -96,6 +96,7 @@ func (a *AzureKeyVaultSecretStorage) Load(ctx context.Context) (jwk.Key, error) 
 
 	slog.InfoContext(ctx, "Loaded signing key from Azure Key Vault secret",
 		slog.String("secretName", a.secretName),
+		slog.String("secretVersion", secretVersion(resp.ID)),
 		slog.String("keyId", keyID(key)),
 	)
 
@@ -116,15 +117,25 @@ func (a *AzureKeyVaultSecretStorage) Store(ctx context.Context, key jwk.Key) err
 		Value: &secretValue,
 	}
 
-	_, err = a.client.SetSecret(ctx, a.secretName, params, nil)
+	resp, err := a.client.SetSecret(ctx, a.secretName, params, nil)
 	if err != nil {
 		return fmt.Errorf("failed to set secret in Azure Key Vault: %w", err)
 	}
 
 	slog.InfoContext(ctx, "Stored signing key to Azure Key Vault secret",
 		slog.String("secretName", a.secretName),
+		slog.String("secretVersion", secretVersion(resp.ID)),
 		slog.String("keyId", keyID(key)),
 	)
 
 	return nil
+}
+
+// Returns the version from a Key Vault secret ID, or an empty string if it's not set
+func secretVersion(id *azsecrets.ID) string {
+	if id == nil {
+		return ""
+	}
+
+	return id.Version()
 }

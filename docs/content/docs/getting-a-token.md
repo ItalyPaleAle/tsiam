@@ -16,10 +16,12 @@ The `X-Tsiam: 1` header is required and helps preventing cross-site request forg
 
 The `/token` endpoint is only reachable from within your Tailnet. It is never exposed via Tailscale Funnel.
 
+Nodes from other tailnets can't get tokens, even if they can reach tsiam: this includes nodes shared into your tailnet, and devices of users you shared tsiam with.
+
 ### Query parameters
 
 | Parameter | Required | Description |
-|-----------|----------|-------------|
+| --- | --- | --- |
 | `resource` | Yes | The audience for the token (alias: `audience`), which specifies the intended recipient of the token. Must be in the [allowed audiences list](/docs/audience-authorization). |
 
 ### Common audience values
@@ -27,7 +29,7 @@ The `/token` endpoint is only reachable from within your Tailnet. It is never ex
 When exchanging tokens with cloud providers, use these audience values:
 
 | Target service | Audience value |
-|----------------|---------------|
+| --- | --- |
 | AWS IAM | `sts.amazonaws.com` (for OIDC federation with AWS IAM) |
 | Microsoft Entra ID (Azure AD) | `api://AzureADTokenExchange` (for Workload Identity Federation) |
 | Google Cloud IAM | Your workload identity pool audience (e.g., `//iam.googleapis.com/projects/PROJECT_ID/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID`) |

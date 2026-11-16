@@ -55,7 +55,8 @@ func TestGetPublicJWKSAsJSON(t *testing.T) {
 
 				// The serialized JWKS must never carry the private `d` parameter
 				var raw map[string]any
-				require.NoError(t, json.Unmarshal(data, &raw))
+				err = json.Unmarshal(data, &raw)
+				require.NoError(t, err)
 				keys, ok := raw["keys"].([]any)
 				require.True(t, ok)
 				require.Len(t, keys, 1)

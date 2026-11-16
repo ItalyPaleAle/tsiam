@@ -288,7 +288,8 @@ func TestHandleGetOpenIDConfiguration(t *testing.T) {
 			assert.Contains(t, rr.Header().Get(httpserver.HeaderContentType), "application/json")
 
 			var doc oidcConfigurationDocument
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &doc))
+			err := json.Unmarshal(rr.Body.Bytes(), &doc)
+			require.NoError(t, err)
 
 			expectedBase := "https://" + discoveryTestHostname
 			assert.Equal(t, expectedBase, doc.Issuer)

@@ -2,324 +2,502 @@ package keystorage
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
-	"github.com/lestrrat-go/jwx/v4/jwa"
 	"github.com/lestrrat-go/jwx/v4/jwk"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/italypaleale/tsiam/pkg/jwks"
 )
 
-// MockAzureKeyVaultKeyClient is a mock implementation of AzureKeyVaultKeyClient
-type MockAzureKeyVaultKeyClient struct {
-	mock.Mock
+const testAKVKeyName = "test-key"
+
+// Fake Azure Key Vault that wraps and unwraps with real RSA-OAEP-256, so tests hit the same plaintext size limits as the real service
+// Each version is a separate 2048-bit RSA key, the default key size in Azure Key Vault
+type fakeKeyVault struct {
+	versions map[string]*rsa.PrivateKey
+	latest   string
+
+	// Key versions passed to each call
+	wrapVersions   []string
+	unwrapVersions []string
+
+	// If set, calls return these errors
+	wrapErr   error
+	unwrapErr error
+
+	// If true, WrapKey responses do not include the key ID
+	omitKID bool
 }
 
-func (m *MockAzureKeyVaultKeyClient) WrapKey(ctx context.Context, keyName string, keyVersion string, parameters azkeys.KeyOperationParameters, options *azkeys.WrapKeyOptions) (azkeys.WrapKeyResponse, error) {
-	args := m.Called(ctx, keyName, keyVersion, parameters, options)
-	return args.Get(0).(azkeys.WrapKeyResponse), args.Error(1) //nolint:forcetypeassert,wrapcheck
+func newFakeKeyVault(t *testing.T) *fakeKeyVault {
+	t.Helper()
+
+	f := &fakeKeyVault{
+		versions: map[string]*rsa.PrivateKey{},
+	}
+	f.rotate(t)
+	return f
 }
 
-func (m *MockAzureKeyVaultKeyClient) UnwrapKey(ctx context.Context, keyName string, keyVersion string, parameters azkeys.KeyOperationParameters, options *azkeys.UnwrapKeyOptions) (azkeys.UnwrapKeyResponse, error) {
-	args := m.Called(ctx, keyName, keyVersion, parameters, options)
-	return args.Get(0).(azkeys.UnwrapKeyResponse), args.Error(1) //nolint:forcetypeassert,wrapcheck
+// Adds a new version of the key and makes it the latest
+func (f *fakeKeyVault) rotate(t *testing.T) {
+	t.Helper()
+
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	version := fmt.Sprintf("version%d", len(f.versions)+1)
+	f.versions[version] = priv
+	f.latest = version
+}
+
+func (f *fakeKeyVault) resolve(keyName string, keyVersion string) (string, *rsa.PrivateKey, error) {
+	if keyName != testAKVKeyName {
+		return "", nil, fmt.Errorf("key not found: %s", keyName)
+	}
+	if keyVersion == "" {
+		keyVersion = f.latest
+	}
+	priv, ok := f.versions[keyVersion]
+	if !ok {
+		return "", nil, fmt.Errorf("key version not found: %s", keyVersion)
+	}
+	return keyVersion, priv, nil
+}
+
+func (f *fakeKeyVault) WrapKey(ctx context.Context, keyName string, keyVersion string, parameters azkeys.KeyOperationParameters, options *azkeys.WrapKeyOptions) (azkeys.WrapKeyResponse, error) {
+	f.wrapVersions = append(f.wrapVersions, keyVersion)
+	if f.wrapErr != nil {
+		return azkeys.WrapKeyResponse{}, f.wrapErr
+	}
+	if parameters.Algorithm == nil || *parameters.Algorithm != azkeys.EncryptionAlgorithmRSAOAEP256 {
+		return azkeys.WrapKeyResponse{}, errors.New("unexpected algorithm")
+	}
+
+	version, priv, err := f.resolve(keyName, keyVersion)
+	if err != nil {
+		return azkeys.WrapKeyResponse{}, err
+	}
+	ct, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, &priv.PublicKey, parameters.Value, nil)
+	if err != nil {
+		return azkeys.WrapKeyResponse{}, fmt.Errorf("wrap failed: %w", err)
+	}
+
+	res := azkeys.WrapKeyResponse{Result: ct}
+	if !f.omitKID {
+		res.KID = new(azkeys.ID("https://fake.vault.azure.net/keys/" + keyName + "/" + version))
+	}
+	return res, nil
+}
+
+func (f *fakeKeyVault) UnwrapKey(ctx context.Context, keyName string, keyVersion string, parameters azkeys.KeyOperationParameters, options *azkeys.UnwrapKeyOptions) (azkeys.UnwrapKeyResponse, error) {
+	f.unwrapVersions = append(f.unwrapVersions, keyVersion)
+	if f.unwrapErr != nil {
+		return azkeys.UnwrapKeyResponse{}, f.unwrapErr
+	}
+	if parameters.Algorithm == nil || *parameters.Algorithm != azkeys.EncryptionAlgorithmRSAOAEP256 {
+		return azkeys.UnwrapKeyResponse{}, errors.New("unexpected algorithm")
+	}
+
+	version, priv, err := f.resolve(keyName, keyVersion)
+	if err != nil {
+		return azkeys.UnwrapKeyResponse{}, err
+	}
+	pt, err := rsa.DecryptOAEP(sha256.New(), nil, priv, parameters.Value, nil)
+	if err != nil {
+		return azkeys.UnwrapKeyResponse{}, fmt.Errorf("unwrap failed: %w", err)
+	}
+
+	return azkeys.UnwrapKeyResponse{
+		Result: pt,
+		KID:    new(azkeys.ID("https://fake.vault.azure.net/keys/" + keyName + "/" + version)),
+	}, nil
+}
+
+// Wraps the JWK directly with the given key version, like tsiam v0.5.0 and earlier did
+func (f *fakeKeyVault) legacyWrap(t *testing.T, key jwk.Key, keyVersion string) []byte {
+	t.Helper()
+
+	data, err := json.Marshal(key)
+	require.NoError(t, err)
+	res, err := f.WrapKey(t.Context(), testAKVKeyName, keyVersion, azkeys.KeyOperationParameters{
+		Algorithm: new(azkeys.EncryptionAlgorithmRSAOAEP256),
+		Value:     data,
+	}, nil)
+	require.NoError(t, err)
+
+	// Reset the call log, so tests only see the calls made by the storage
+	f.wrapVersions = nil
+	return res.Result
+}
+
+func newTestAKVStorage(t *testing.T, kv *fakeKeyVault, keyVersion string) *AzureKeyVaultKeyStorage {
+	t.Helper()
+
+	keyPath := filepath.Join(t.TempDir(), "wrapped-key.json")
+	storage, err := NewAzureKeyVaultKeyStorageWithClient(kv, testAKVKeyName, keyVersion, keyPath)
+	require.NoError(t, err)
+	return storage
+}
+
+func readEnvelope(t *testing.T, path string) wrappedKeyEnvelope {
+	t.Helper()
+
+	data, err := os.ReadFile(path) //nolint:gosec
+	require.NoError(t, err)
+
+	var env wrappedKeyEnvelope
+	err = json.Unmarshal(data, &env)
+	require.NoError(t, err, "Wrapped key file should be a JSON envelope")
+	return env
+}
+
+// Returns the base64url-encoded private part (`d`) of a JWK
+func privateKeyParam(t *testing.T, key jwk.Key) string {
+	t.Helper()
+
+	data, err := json.Marshal(key)
+	require.NoError(t, err)
+	var fields map[string]any
+	err = json.Unmarshal(data, &fields)
+	require.NoError(t, err)
+	d, ok := fields["d"].(string)
+	require.True(t, ok, "Key should have a private part")
+	require.NotEmpty(t, d)
+	return d
+}
+
+func requireSameKey(t *testing.T, expected jwk.Key, actual jwk.Key) {
+	t.Helper()
+
+	require.NotNil(t, actual)
+	expectedJSON, err := json.Marshal(expected)
+	require.NoError(t, err)
+	actualJSON, err := json.Marshal(actual)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(expectedJSON), string(actualJSON))
 }
 
 func TestNewAzureKeyVaultKeyStorageWithClient(t *testing.T) {
 	tmpDir := t.TempDir()
-	keyPath := filepath.Join(tmpDir, "wrapped-key.bin")
-	mockClient := &MockAzureKeyVaultKeyClient{}
+	keyPath := filepath.Join(tmpDir, "wrapped-key.json")
+	kv := &fakeKeyVault{}
 
-	// Test with valid parameters
-	storage, err := NewAzureKeyVaultKeyStorageWithClient(mockClient, "test-key", keyPath)
-	require.NoError(t, err, "Failed to create storage with valid parameters")
-	assert.NotNil(t, storage, "Storage should not be nil")
-	assert.Equal(t, "test-key", storage.keyName, "Key name should match")
-	assert.Equal(t, keyPath, storage.storagePath, "Storage path should match")
+	t.Run("valid parameters", func(t *testing.T) {
+		storage, err := NewAzureKeyVaultKeyStorageWithClient(kv, testAKVKeyName, "abc123", keyPath)
+		require.NoError(t, err)
+		require.NotNil(t, storage)
+		assert.Equal(t, testAKVKeyName, storage.keyName)
+		assert.Equal(t, "abc123", storage.keyVersion)
+		assert.Equal(t, keyPath, storage.storagePath)
+	})
 
-	// Test with nil client
-	_, err = NewAzureKeyVaultKeyStorageWithClient(nil, "test-key", keyPath)
-	require.Error(t, err, "Expected error with nil client")
-	require.ErrorContains(t, err, "client cannot be nil")
+	t.Run("latest is the same as empty", func(t *testing.T) {
+		storage, err := NewAzureKeyVaultKeyStorageWithClient(kv, testAKVKeyName, "Latest", keyPath)
+		require.NoError(t, err)
+		assert.Empty(t, storage.keyVersion)
+	})
 
-	// Test with empty key name
-	_, err = NewAzureKeyVaultKeyStorageWithClient(mockClient, "", keyPath)
-	require.Error(t, err, "Expected error with empty key name")
-	require.ErrorContains(t, err, "keyName cannot be empty")
+	t.Run("nil client", func(t *testing.T) {
+		_, err := NewAzureKeyVaultKeyStorageWithClient(nil, testAKVKeyName, "", keyPath)
+		require.ErrorContains(t, err, "client cannot be nil")
+	})
 
-	// Test with empty storage path
-	_, err = NewAzureKeyVaultKeyStorageWithClient(mockClient, "test-key", "")
-	require.Error(t, err, "Expected error with empty storage path")
-	require.ErrorContains(t, err, "storagePath cannot be empty")
+	t.Run("empty key name", func(t *testing.T) {
+		_, err := NewAzureKeyVaultKeyStorageWithClient(kv, "", "", keyPath)
+		require.ErrorContains(t, err, "keyName cannot be empty")
+	})
+
+	t.Run("empty storage path", func(t *testing.T) {
+		_, err := NewAzureKeyVaultKeyStorageWithClient(kv, testAKVKeyName, "", "")
+		require.ErrorContains(t, err, "storagePath cannot be empty")
+	})
 }
 
 func TestAzureKeyVaultKeyStorage_LoadNonExistent(t *testing.T) {
-	tmpDir := t.TempDir()
-	keyPath := filepath.Join(tmpDir, "wrapped-key.bin")
-	mockClient := &MockAzureKeyVaultKeyClient{}
+	kv := newFakeKeyVault(t)
+	storage := newTestAKVStorage(t, kv, "")
 
-	storage, err := NewAzureKeyVaultKeyStorageWithClient(mockClient, "test-key", keyPath)
-	require.NoError(t, err)
-
-	// Test loading non-existent key (no file on disk)
 	key, err := storage.Load(t.Context())
-	require.ErrorIs(t, err, errKeyNoExist, "Loading non-existent key should return errKeyNoExist")
-	require.Nil(t, key, "Expected nil key for non-existent file")
+	require.ErrorIs(t, err, errKeyNoExist)
+	require.Nil(t, key)
 
-	// No mock expectations needed since file doesn't exist
-}
-
-func TestAzureKeyVaultKeyStorage_LoadExisting(t *testing.T) {
-	tmpDir := t.TempDir()
-	keyPath := filepath.Join(tmpDir, "wrapped-key.bin")
-	mockClient := &MockAzureKeyVaultKeyClient{}
-
-	storage, err := NewAzureKeyVaultKeyStorageWithClient(mockClient, "test-key", keyPath)
+	// An empty file is treated as missing
+	err = os.WriteFile(storage.storagePath, nil, 0600)
 	require.NoError(t, err)
+	key, err = storage.Load(t.Context())
+	require.ErrorIs(t, err, errKeyNoExist)
+	require.Nil(t, key)
 
-	// Generate a test key
-	signingKey, err := jwks.NewSigningKey("ES256", "")
-	require.NoError(t, err, "Failed to generate test key")
-
-	originalKeyID, ok := signingKey.KeyID()
-	require.True(t, ok)
-
-	// Marshal the key to JSON (this is what would be unwrapped)
-	keyJSON, err := json.Marshal(signingKey)
-	require.NoError(t, err)
-
-	// Simulate wrapped data on disk
-	wrappedData := []byte("wrapped-key-data-simulation")
-	err = os.WriteFile(keyPath, wrappedData, 0600)
-	require.NoError(t, err)
-
-	// Mock UnwrapKey to return the original key
-	mockClient.
-		On(
-			"UnwrapKey",
-			mock.Anything,
-			"test-key",
-			"",
-			mock.MatchedBy(func(params azkeys.KeyOperationParameters) bool {
-				if params.Value == nil || string(params.Value) != string(wrappedData) {
-					return false
-				}
-				if params.Algorithm == nil || *params.Algorithm != azkeys.EncryptionAlgorithmRSAOAEP256 {
-					return false
-				}
-				return true
-			}),
-			mock.Anything,
-		).
-		Return(azkeys.UnwrapKeyResponse{
-			Result: keyJSON,
-		}, nil)
-
-	// Load the key
-	loadedKey, err := storage.Load(t.Context())
-	require.NoError(t, err, "Failed to load key")
-	require.NotNil(t, loadedKey, "Loaded key should not be nil")
-
-	// Verify key properties
-	kid, ok := loadedKey.KeyID()
-	require.True(t, ok, "Loaded key should have a key ID")
-	assert.Equal(t, originalKeyID, kid, "Key ID should match")
-
-	alg, ok := loadedKey.Algorithm()
-	require.True(t, ok, "Loaded key should have an algorithm")
-	assert.Equal(t, jwa.ES256(), alg, "Algorithm should match")
-
-	mockClient.AssertExpectations(t)
-}
-
-func TestAzureKeyVaultKeyStorage_LoadUnwrapError(t *testing.T) {
-	tmpDir := t.TempDir()
-	keyPath := filepath.Join(tmpDir, "wrapped-key.bin")
-	mockClient := &MockAzureKeyVaultKeyClient{}
-
-	storage, err := NewAzureKeyVaultKeyStorageWithClient(mockClient, "test-key", keyPath)
-	require.NoError(t, err)
-
-	// Write some wrapped data to disk
-	wrappedData := []byte("wrapped-key-data")
-	err = os.WriteFile(keyPath, wrappedData, 0600)
-	require.NoError(t, err)
-
-	// Mock UnwrapKey to return an error
-	mockErr := errors.New("mock unwrap error")
-	mockClient.On("UnwrapKey", mock.Anything, "test-key", "", mock.Anything, mock.Anything).Return(azkeys.UnwrapKeyResponse{}, mockErr)
-
-	// Load should return error
-	_, err = storage.Load(t.Context())
-	require.Error(t, err, "Expected error when UnwrapKey fails")
-	require.ErrorContains(t, err, "failed to unwrap key with Azure Key Vault")
-
-	mockClient.AssertExpectations(t)
-}
-
-func TestAzureKeyVaultKeyStorage_Store(t *testing.T) {
-	tmpDir := t.TempDir()
-	keyPath := filepath.Join(tmpDir, "wrapped-key.bin")
-	mockClient := &MockAzureKeyVaultKeyClient{}
-
-	storage, err := NewAzureKeyVaultKeyStorageWithClient(mockClient, "test-key", keyPath)
-	require.NoError(t, err)
-
-	// Generate a test key
-	signingKey, err := jwks.NewSigningKey("ES256", "")
-	require.NoError(t, err, "Failed to generate test key")
-
-	// Mock WrapKey to return wrapped data
-	wrappedData := []byte("wrapped-key-result")
-	mockClient.
-		On(
-			"WrapKey",
-			mock.Anything,
-			"test-key",
-			"",
-			mock.MatchedBy(func(params azkeys.KeyOperationParameters) bool {
-				// Verify that the value can be parsed as a JWK
-				if params.Value == nil {
-					return false
-				}
-				_, err := jwk.ParseKey(params.Value)
-				if err != nil {
-					return false
-				}
-				// Verify the wrapping algorithm
-				if params.Algorithm == nil || *params.Algorithm != azkeys.EncryptionAlgorithmRSAOAEP256 {
-					return false
-				}
-				return true
-			}),
-			mock.Anything,
-		).
-		Return(azkeys.WrapKeyResponse{
-			Result: wrappedData,
-		}, nil)
-
-	// Store the key
-	err = storage.Store(t.Context(), signingKey)
-	require.NoError(t, err, "Failed to store key")
-
-	// Verify file exists and contains wrapped data
-	storedData, err := os.ReadFile(keyPath) //nolint:gosec
-	require.NoError(t, err, "Failed to read stored file")
-	assert.Equal(t, wrappedData, storedData, "Stored data should match wrapped data")
-
-	mockClient.AssertExpectations(t)
-}
-
-func TestAzureKeyVaultKeyStorage_StoreWrapError(t *testing.T) {
-	tmpDir := t.TempDir()
-	keyPath := filepath.Join(tmpDir, "wrapped-key.bin")
-	mockClient := &MockAzureKeyVaultKeyClient{}
-
-	storage, err := NewAzureKeyVaultKeyStorageWithClient(mockClient, "test-key", keyPath)
-	require.NoError(t, err)
-
-	// Generate a test key
-	signingKey, err := jwks.NewSigningKey("ES256", "")
-	require.NoError(t, err, "Failed to generate test key")
-
-	// Mock WrapKey to return an error
-	mockErr := errors.New("mock wrap error")
-	mockClient.On("WrapKey", mock.Anything, "test-key", "", mock.Anything, mock.Anything).Return(azkeys.WrapKeyResponse{}, mockErr)
-
-	// Store should return error
-	err = storage.Store(t.Context(), signingKey)
-	require.Error(t, err, "Expected error when WrapKey fails")
-	require.ErrorContains(t, err, "failed to wrap key with Azure Key Vault")
-
-	mockClient.AssertExpectations(t)
+	assert.Empty(t, kv.unwrapVersions, "Key Vault should not be called")
 }
 
 func TestAzureKeyVaultKeyStorage_RoundTrip(t *testing.T) {
-	tmpDir := t.TempDir()
-	keyPath := filepath.Join(tmpDir, "wrapped-key.bin")
-	mockClient := &MockAzureKeyVaultKeyClient{}
+	// With an RSA-2048 wrapping key, RSA-OAEP-256 can encrypt at most 190 bytes, which is less than the serialized private JWK for every algorithm except EdDSA
+	kv := newFakeKeyVault(t)
 
-	storage, err := NewAzureKeyVaultKeyStorageWithClient(mockClient, "test-key", keyPath)
-	require.NoError(t, err)
+	algs := []struct {
+		alg   string
+		curve string
+	}{
+		{alg: "RS256"},
+		{alg: "ES256"},
+		{alg: "ES384"},
+		{alg: "ES512"},
+		{alg: "EdDSA", curve: "Ed25519"},
+	}
+	for _, tc := range algs {
+		t.Run(tc.alg, func(t *testing.T) {
+			storage := newTestAKVStorage(t, kv, "")
 
-	// Generate a test key
+			signingKey, err := jwks.NewSigningKey(tc.alg, tc.curve)
+			require.NoError(t, err)
+
+			err = storage.Store(t.Context(), signingKey)
+			require.NoError(t, err)
+
+			// The file records the version that wrapped the DEK, and does not contain the plaintext key
+			env := readEnvelope(t, storage.storagePath)
+			assert.Equal(t, wrappedKeyEnvelopeVersion, env.Version)
+			assert.Equal(t, kv.latest, env.KeyVersion)
+			assert.NotEmpty(t, env.WrappedKey)
+			assert.NotEmpty(t, env.Ciphertext)
+
+			before, err := os.ReadFile(storage.storagePath)
+			require.NoError(t, err)
+			assert.NotContains(t, string(before), privateKeyParam(t, signingKey))
+
+			loadedKey, err := storage.Load(t.Context())
+			require.NoError(t, err)
+			requireSameKey(t, signingKey, loadedKey)
+
+			// Loading a pinned file does not rewrite it
+			after, err := os.ReadFile(storage.storagePath)
+			require.NoError(t, err)
+			assert.Equal(t, before, after)
+		})
+	}
+}
+
+func TestAzureKeyVaultKeyStorage_LoadAfterRotation(t *testing.T) {
+	kv := newFakeKeyVault(t)
+	storage := newTestAKVStorage(t, kv, "")
+	originalVersion := kv.latest
+
 	signingKey, err := jwks.NewSigningKey("ES256", "")
-	require.NoError(t, err, "Failed to generate test key")
-
-	originalKeyID, ok := signingKey.KeyID()
-	require.True(t, ok)
-
-	// Mock WrapKey to capture the original data and return wrapped data
-	var originalKeyData []byte
-	wrappedData := []byte("wrapped-key-simulation")
-	mockClient.
-		On("WrapKey", mock.Anything, "test-key", "", mock.Anything, mock.Anything).
-		Run(func(args mock.Arguments) {
-			params := args.Get(3).(azkeys.KeyOperationParameters) //nolint:forcetypeassert
-			if params.Value != nil {
-				originalKeyData = make([]byte, len(params.Value))
-				copy(originalKeyData, params.Value)
-			}
-		}).
-		Return(azkeys.WrapKeyResponse{
-			Result: wrappedData,
-		}, nil)
-
-	// Store the key
-	err = storage.Store(t.Context(), signingKey)
-	require.NoError(t, err, "Failed to store key")
-	require.NotEmpty(t, originalKeyData, "Original key data should be captured")
-
-	// Verify wrapped data is on disk
-	storedData, err := os.ReadFile(keyPath) //nolint:gosec
 	require.NoError(t, err)
-	assert.Equal(t, wrappedData, storedData)
+	err = storage.Store(t.Context(), signingKey)
+	require.NoError(t, err)
 
-	// Mock UnwrapKey to return the original data
-	mockClient.
-		On(
-			"UnwrapKey",
-			mock.Anything,
-			"test-key",
-			"",
-			mock.MatchedBy(func(params azkeys.KeyOperationParameters) bool {
-				return params.Value != nil && string(params.Value) == string(wrappedData)
-			}),
-			mock.Anything,
-		).
-		Return(azkeys.UnwrapKeyResponse{
-			Result: originalKeyData,
-		}, nil)
+	// Rotating the key in Key Vault creates a new latest version
+	kv.rotate(t)
 
-	// Load the key back
 	loadedKey, err := storage.Load(t.Context())
-	require.NoError(t, err, "Failed to load stored key")
-	require.NotNil(t, loadedKey, "Loaded key should not be nil")
+	require.NoError(t, err)
+	requireSameKey(t, signingKey, loadedKey)
+	assert.Equal(t, []string{originalVersion}, kv.unwrapVersions, "Unwrap should use the version recorded in the file")
+}
 
-	// Verify key properties
-	kid, ok := loadedKey.KeyID()
-	require.True(t, ok, "Loaded key should have a key ID")
-	assert.Equal(t, originalKeyID, kid, "Key ID should match")
+func TestAzureKeyVaultKeyStorage_StorePinnedKeyVersion(t *testing.T) {
+	kv := newFakeKeyVault(t)
+	pinnedVersion := kv.latest
+	kv.rotate(t)
 
-	alg, ok := loadedKey.Algorithm()
-	require.True(t, ok, "Loaded key should have an algorithm")
-	assert.Equal(t, jwa.ES256(), alg, "Algorithm should match")
+	storage := newTestAKVStorage(t, kv, pinnedVersion)
 
-	mockClient.AssertExpectations(t)
+	signingKey, err := jwks.NewSigningKey("ES256", "")
+	require.NoError(t, err)
+	err = storage.Store(t.Context(), signingKey)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{pinnedVersion}, kv.wrapVersions)
+	env := readEnvelope(t, storage.storagePath)
+	assert.Equal(t, pinnedVersion, env.KeyVersion)
+}
+
+func TestAzureKeyVaultKeyStorage_LoadLegacy(t *testing.T) {
+	// Files written by tsiam v0.5.0 and earlier contain the JWK wrapped directly with the Key Vault key, which only fits for EdDSA keys with an RSA-2048 wrapping key
+	t.Run("rewrites file pinned to the latest version", func(t *testing.T) {
+		kv := newFakeKeyVault(t)
+		storage := newTestAKVStorage(t, kv, "")
+
+		signingKey, err := jwks.NewSigningKey("EdDSA", "Ed25519")
+		require.NoError(t, err)
+		err = os.WriteFile(storage.storagePath, kv.legacyWrap(t, signingKey, ""), 0600)
+		require.NoError(t, err)
+
+		loadedKey, err := storage.Load(t.Context())
+		require.NoError(t, err)
+		requireSameKey(t, signingKey, loadedKey)
+
+		env := readEnvelope(t, storage.storagePath)
+		assert.Equal(t, kv.latest, env.KeyVersion)
+
+		// After rotating, the rewritten file still loads
+		originalVersion := kv.latest
+		kv.rotate(t)
+		kv.unwrapVersions = nil
+		loadedKey, err = storage.Load(t.Context())
+		require.NoError(t, err)
+		requireSameKey(t, signingKey, loadedKey)
+		assert.Equal(t, []string{originalVersion}, kv.unwrapVersions)
+	})
+
+	t.Run("configured version unwraps a legacy file after rotation", func(t *testing.T) {
+		kv := newFakeKeyVault(t)
+		originalVersion := kv.latest
+
+		signingKey, err := jwks.NewSigningKey("EdDSA", "Ed25519")
+		require.NoError(t, err)
+		legacy := kv.legacyWrap(t, signingKey, "")
+
+		// The key was rotated before upgrading, so the legacy file can only be unwrapped with the configured version
+		kv.rotate(t)
+		storage := newTestAKVStorage(t, kv, originalVersion)
+		err = os.WriteFile(storage.storagePath, legacy, 0600)
+		require.NoError(t, err)
+
+		loadedKey, err := storage.Load(t.Context())
+		require.NoError(t, err)
+		requireSameKey(t, signingKey, loadedKey)
+
+		env := readEnvelope(t, storage.storagePath)
+		assert.Equal(t, originalVersion, env.KeyVersion)
+	})
+
+	t.Run("failed rewrite still returns the key", func(t *testing.T) {
+		kv := newFakeKeyVault(t)
+		storage := newTestAKVStorage(t, kv, "")
+
+		signingKey, err := jwks.NewSigningKey("EdDSA", "Ed25519")
+		require.NoError(t, err)
+		legacy := kv.legacyWrap(t, signingKey, "")
+		err = os.WriteFile(storage.storagePath, legacy, 0600)
+		require.NoError(t, err)
+
+		kv.wrapErr = errors.New("mock wrap error")
+		loadedKey, err := storage.Load(t.Context())
+		require.NoError(t, err)
+		requireSameKey(t, signingKey, loadedKey)
+
+		// The legacy file is left in place
+		data, err := os.ReadFile(storage.storagePath)
+		require.NoError(t, err)
+		assert.Equal(t, legacy, data)
+	})
+}
+
+func TestAzureKeyVaultKeyStorage_LoadUnpinnedEnvelope(t *testing.T) {
+	kv := newFakeKeyVault(t)
+	storage := newTestAKVStorage(t, kv, "")
+
+	signingKey, err := jwks.NewSigningKey("ES256", "")
+	require.NoError(t, err)
+	err = storage.Store(t.Context(), signingKey)
+	require.NoError(t, err)
+
+	// Remove the recorded version from the file
+	env := readEnvelope(t, storage.storagePath)
+	env.KeyVersion = ""
+	data, err := json.Marshal(env)
+	require.NoError(t, err)
+	err = os.WriteFile(storage.storagePath, data, 0600)
+	require.NoError(t, err)
+
+	loadedKey, err := storage.Load(t.Context())
+	require.NoError(t, err)
+	requireSameKey(t, signingKey, loadedKey)
+
+	// The file is rewritten, with the version recorded
+	env = readEnvelope(t, storage.storagePath)
+	assert.Equal(t, kv.latest, env.KeyVersion)
+}
+
+func TestAzureKeyVaultKeyStorage_LoadErrors(t *testing.T) {
+	storeKey := func(t *testing.T) (*fakeKeyVault, *AzureKeyVaultKeyStorage) {
+		t.Helper()
+
+		kv := newFakeKeyVault(t)
+		storage := newTestAKVStorage(t, kv, "")
+		signingKey, err := jwks.NewSigningKey("ES256", "")
+		require.NoError(t, err)
+		err = storage.Store(t.Context(), signingKey)
+		require.NoError(t, err)
+		return kv, storage
+	}
+
+	t.Run("unwrap error", func(t *testing.T) {
+		kv, storage := storeKey(t)
+		kv.unwrapErr = errors.New("mock unwrap error")
+
+		_, err := storage.Load(t.Context())
+		require.ErrorContains(t, err, "failed to unwrap key with Azure Key Vault")
+	})
+
+	t.Run("unsupported format version", func(t *testing.T) {
+		_, storage := storeKey(t)
+		env := readEnvelope(t, storage.storagePath)
+		env.Version = 99
+		data, err := json.Marshal(env)
+		require.NoError(t, err)
+		err = os.WriteFile(storage.storagePath, data, 0600)
+		require.NoError(t, err)
+
+		_, err = storage.Load(t.Context())
+		require.ErrorContains(t, err, "unsupported wrapped key file format version")
+	})
+
+	t.Run("tampered ciphertext", func(t *testing.T) {
+		_, storage := storeKey(t)
+		env := readEnvelope(t, storage.storagePath)
+		env.Ciphertext[len(env.Ciphertext)-1] ^= 0xff
+		data, err := json.Marshal(env)
+		require.NoError(t, err)
+		err = os.WriteFile(storage.storagePath, data, 0600)
+		require.NoError(t, err)
+
+		_, err = storage.Load(t.Context())
+		require.ErrorContains(t, err, "failed to decrypt signing key")
+	})
+}
+
+func TestAzureKeyVaultKeyStorage_StoreErrors(t *testing.T) {
+	signingKey, err := jwks.NewSigningKey("ES256", "")
+	require.NoError(t, err)
+
+	t.Run("wrap error", func(t *testing.T) {
+		kv := newFakeKeyVault(t)
+		kv.wrapErr = errors.New("mock wrap error")
+		storage := newTestAKVStorage(t, kv, "")
+
+		err := storage.Store(t.Context(), signingKey)
+		require.ErrorContains(t, err, "failed to wrap key with Azure Key Vault")
+		assert.NoFileExists(t, storage.storagePath)
+	})
+
+	t.Run("missing key version in response", func(t *testing.T) {
+		kv := newFakeKeyVault(t)
+		kv.omitKID = true
+		storage := newTestAKVStorage(t, kv, "")
+
+		err := storage.Store(t.Context(), signingKey)
+		require.ErrorContains(t, err, "does not include the version of the key")
+		assert.NoFileExists(t, storage.storagePath)
+	})
 }
 
 func TestAzureKeyVaultKeyStorage_InvalidPath(t *testing.T) {
-	mockClient := &MockAzureKeyVaultKeyClient{}
-
-	// Try to create storage with invalid path
-	_, err := NewAzureKeyVaultKeyStorageWithClient(mockClient, "test-key", "/invalid/nonexistent/deeply/nested/path/key.bin")
+	_, err := NewAzureKeyVaultKeyStorageWithClient(&fakeKeyVault{}, testAKVKeyName, "", "/invalid/nonexistent/deeply/nested/path/key.bin")
 	require.Error(t, err, "Expected error for invalid path")
 }

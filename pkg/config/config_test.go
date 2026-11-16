@@ -116,3 +116,39 @@ func TestHasControlChars(t *testing.T) {
 	assert.True(t, HasControlChars("\x1f"))
 	assert.True(t, HasControlChars("\x7f"))
 }
+
+func TestValidateAzureKeyVaultKeysKeyVersion(t *testing.T) {
+	newConfig := func(keyVersion string) *Config {
+		c := newValidConfig()
+		c.SigningKey.Storage = "AzureKeyVaultKeys"
+		c.SigningKey.AzureKeyVaultKeys = &ConfigStorageAzureKeyVaultKeys{
+			VaultURL:    "https://myvault.vault.azure.net/",
+			KeyName:     "tsiam",
+			KeyVersion:  keyVersion,
+			StoragePath: "/data/signing-key.json",
+		}
+		return c
+	}
+
+	for _, keyVersion := range []string{"", "latest", "Latest"} {
+		t.Run("warns when not pinned: '"+keyVersion+"'", func(t *testing.T) {
+			var buf strings.Builder
+			logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+			c := newConfig(keyVersion)
+			err := c.Validate(logger)
+			require.NoError(t, err)
+			assert.Contains(t, buf.String(), "signingKey.azureKeyVaultKeys.keyVersion")
+		})
+	}
+
+	t.Run("no warning when pinned", func(t *testing.T) {
+		var buf strings.Builder
+		logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+		c := newConfig("0123456789abcdef0123456789abcdef")
+		err := c.Validate(logger)
+		require.NoError(t, err)
+		assert.NotContains(t, buf.String(), "keyVersion")
+	})
+}

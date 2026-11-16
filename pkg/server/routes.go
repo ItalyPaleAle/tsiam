@@ -45,6 +45,20 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		errNodeIdentity.WriteResponse(w, r)
 		return
 	}
+
+	// Only nodes in tsiam's own tailnet can get tokens
+	// Nodes from other tailnets can reach tsiam when they're shared into this tailnet, or when tsiam is shared with their users
+	// This tailnet doesn't vouch for their identity, including the user login
+	if whois.Shared || !tsnet.IsSameTailnet(whois.Name, s.hostname()) {
+		slog.WarnContext(r.Context(), "Rejected caller from another tailnet",
+			slog.String("nodeId", whois.NodeID),
+			slog.String("nodeName", whois.Name),
+			slog.Bool("shared", whois.Shared),
+		)
+		errNodeNotInTailnet.WriteResponse(w, r)
+		return
+	}
+
 	whois = sanitizeWhois(whois)
 
 	// Extract and validate audience parameter
