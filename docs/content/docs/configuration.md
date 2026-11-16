@@ -10,7 +10,7 @@ tsiam is configured via a YAML file. The application searches for configuration 
 3. `~/.tsiam/config.yaml`
 4. `/etc/tsiam/config.yaml`
 
-> When using Docker, mount the `config.yaml` file in `/etc/tsiam/config.yaml`
+> When using Docker, mount the `config.yaml` file in `/etc/tsiam/config.yaml`. The container runs as user ID 65532, so directories you mount for tsiam's state must be writable by that user.
 
 ## Example configuration
 
@@ -41,6 +41,8 @@ logs:
 When tsiam starts for the first time, it needs to join your Tailnet.
 
 > Authentication credentials are only used on first startup or when the node key expires.
+
+If tsiam can't join the Tailnet within 5 minutes of starting, it exits with an error.
 
 You have three options:
 

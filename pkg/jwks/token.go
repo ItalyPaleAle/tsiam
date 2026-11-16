@@ -14,6 +14,9 @@ import (
 	"github.com/italypaleale/tsiam/pkg/buildinfo"
 )
 
+// How far nbf is set in the past, so verifiers with a clock that is slightly behind accept tokens right away
+const notBeforeLeeway = 5 * time.Second
+
 type TokenRequest struct {
 	Issuer   string
 	Audience string
@@ -41,6 +44,9 @@ func NewToken(key jwk.Key, opts TokenRequest) (TokenResponse, error) {
 	if !ok {
 		return TokenResponse{}, errors.New("signing key does not contain an algorithm")
 	}
+	if opts.Subject == "" {
+		return TokenResponse{}, errors.New("token subject is required")
+	}
 
 	// Generate jti (JWT ID) using 24 cryptographically random bytes
 	jtiBytes := make([]byte, 24)
@@ -58,11 +64,12 @@ func NewToken(key jwk.Key, opts TokenRequest) (TokenResponse, error) {
 	// Create JWT token
 	now := time.Now()
 	exp := now.Add(opts.Lifetime)
+	nbf := now.Add(-notBeforeLeeway)
 	b := jwt.NewBuilder().
 		JwtID(jti).
 		Subject(opts.Subject).
 		IssuedAt(now).
-		NotBefore(now).
+		NotBefore(nbf).
 		Expiration(exp).
 		Claim(claimName, opts.Whois)
 	if opts.Issuer != "" {
@@ -88,6 +95,6 @@ func NewToken(key jwk.Key, opts TokenRequest) (TokenResponse, error) {
 		JTI:       jti,
 		ExpiresIn: int64(opts.Lifetime.Seconds()),
 		ExpiresOn: exp.Unix(),
-		NotBefore: now.Unix(),
+		NotBefore: nbf.Unix(),
 	}, nil
 }

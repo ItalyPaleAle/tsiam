@@ -67,6 +67,12 @@ docker run -d \
   ghcr.io/italypaleale/tsiam:v0
 ```
 
+The container runs as user ID 65532. On Linux, make the two state directories writable by that user:
+
+```sh
+sudo chown 65532:65532 /path/to/tsnet-state /path/to/tsiam-state
+```
+
 ### Pre-built Binaries
 
 Download the latest binary for your platform from the [releases page](https://github.com/ItalyPaleAle/tsiam/releases).

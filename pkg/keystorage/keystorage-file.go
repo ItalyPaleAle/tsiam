@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
-	"path/filepath"
 
 	"github.com/lestrrat-go/jwx/v4/jwk"
 )
@@ -20,16 +19,9 @@ type FileKeyStorage struct {
 
 // NewFileKeyStorage creates a new file-based key storage
 func NewFileKeyStorage(path string) (*FileKeyStorage, error) {
-	// Ensure directory exists with restrictive permissions
-	// MkdirAll only honors the mode on creation, so an existing dir with looser bits would silently remain world-readable, the explicit Chmod enforces 0700 on every run
-	dir := filepath.Dir(path)
-	err := os.MkdirAll(dir, 0700)
+	err := ensureKeyDir(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create key storage directory: %w", err)
-	}
-	err = os.Chmod(dir, 0700) //nolint:gosec // directory needs the execute bit, gosec only knows about files
-	if err != nil {
-		return nil, fmt.Errorf("failed to chmod key storage directory: %w", err)
+		return nil, err
 	}
 
 	return &FileKeyStorage{

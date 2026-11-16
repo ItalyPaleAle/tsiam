@@ -85,3 +85,4 @@ run:
   # Default: []
   build-tags:
     - unit
+    - integration

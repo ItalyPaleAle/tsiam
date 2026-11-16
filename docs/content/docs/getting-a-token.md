@@ -16,7 +16,9 @@ The `X-Tsiam: 1` header is required and helps preventing cross-site request forg
 
 The `/token` endpoint is only reachable from within your Tailnet. It is never exposed via Tailscale Funnel.
 
-Nodes from other tailnets can't get tokens, even if they can reach tsiam: this includes nodes shared into your tailnet, and devices of users you shared tsiam with.
+Nodes from other tailnets can't get tokens, even if they can reach tsiam: this includes nodes shared into your tailnet, and devices of users you shared tsiam with. Nodes whose key has expired can't get tokens either.
+
+Additionally, tokens never outlive the key of the node that requested them: if the node's key expires sooner than [`tokens.lifetime`](/docs/configuration#tokens), the token expires with it.
 
 ### Query parameters
 

@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # Base images in the Dockerfile, which are pinned by digest
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3

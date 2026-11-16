@@ -2,12 +2,16 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/italypaleale/go-kit/observability"
 	"github.com/italypaleale/go-kit/utils"
+	"tailscale.com/tailcfg"
+	"tailscale.com/util/dnsname"
 
 	"github.com/italypaleale/tsiam/pkg/buildinfo"
 )
@@ -26,7 +30,7 @@ type Config struct {
 	// SigningKey contains configuration for JWT signing keys
 	SigningKey ConfigSigningKey `yaml:"signingKey"`
 
-	// Dev is meant for development only; it's undocumented
+	// Dev is meant for development only - it's undocumented
 	Dev ConfigDev `yaml:"-"`
 
 	// Internal keys
@@ -45,8 +49,17 @@ type ConfigLogs struct {
 	OmitHealthChecks bool `yaml:"omitHealthChecks"`
 
 	// If true, emits logs formatted as JSON, otherwise uses a text-based structured log format.
-	// Defaults to false if a TTY is attached (e.g. when running the binary directly in the terminal or in development); true otherwise.
+	// Defaults to false if a TTY is attached (e.g. when running the binary directly in the terminal or in development), true otherwise.
 	JSON bool `yaml:"json"`
+}
+
+// Validate returns an error if the log level isn't valid
+func (l *ConfigLogs) Validate() error {
+	_, err := observability.GetLogLevel(l.Level)
+	if err != nil {
+		return errors.New("configuration option 'logs.level' is not valid - allowed values: 'debug', 'info', 'warn', 'error'")
+	}
+	return nil
 }
 
 // ConfigTokens holds tokens configuration
@@ -92,8 +105,9 @@ type ConfigTokens struct {
 	SubjectClaim string `yaml:"subjectClaim"`
 
 	// Name of the custom JWT claim that carries the caller's Tailscale identity (node ID, name, tags, user, IPs).
-	// Must not be one of the registered claims that tsiam sets itself: `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`.
-	// Note: This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always .`italypaleale.me/tsiam`
+	// Must not be one of the registered claims that tsiam sets itself (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`), or a claim that relying parties interpret (`azp`, `nonce`, `auth_time`, `acr`, `amr`, `cnf`, `act`, `may_act`, `scope`, `client_id`).
+	// Must be at most 256 characters.
+	// Note: This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always `italypaleale.me/tsiam`.
 	// +default "italypaleale.me/tsiam"
 	ClaimName string `yaml:"claimName"`
 
@@ -282,6 +296,23 @@ func (c *Config) GetInstanceID() string {
 //
 //nolint:gocyclo
 func (c *Config) Validate(logger *slog.Logger) error {
+	err := c.Logs.Validate()
+	if err != nil {
+		return err
+	}
+
+	// tsnet configuration
+	err = dnsname.ValidLabel(c.TSNet.Hostname)
+	if err != nil {
+		return fmt.Errorf("configuration option 'tsnet.hostname' is not valid: %w", err)
+	}
+	for _, tag := range c.TSNet.AdvertiseTags {
+		err = tailcfg.CheckTag(tag)
+		if err != nil {
+			return fmt.Errorf("configuration option 'tsnet.advertiseTags' contains an invalid tag '%s': %w", tag, err)
+		}
+	}
+
 	// Token configuration
 	c.Tokens.Lifetime = c.Tokens.Lifetime.Truncate(time.Second)
 	if c.Tokens.Lifetime < time.Minute {
@@ -293,7 +324,7 @@ func (c *Config) Validate(logger *slog.Logger) error {
 
 	// Rate limit
 	if c.Tokens.RateLimitPerMinute < 0 {
-		return errors.New("configuration option 'tokens.rateLimitPerMinute' cannot be negative; set to 0 to disable rate limiting")
+		return errors.New("configuration option 'tokens.rateLimitPerMinute' cannot be negative - set to 0 to disable rate limiting")
 	}
 
 	// Subject claim selection
@@ -303,7 +334,7 @@ func (c *Config) Validate(logger *slog.Logger) error {
 	case SubjectClaimNodeID, SubjectClaimName, SubjectClaimCapability:
 		// Valid
 	default:
-		return errors.New("configuration option 'tokens.subjectClaim' is not valid; allowed values: 'nodeId', 'name', 'capability'")
+		return errors.New("configuration option 'tokens.subjectClaim' is not valid - allowed values: 'nodeId', 'name', 'capability'")
 	}
 
 	// Identity claim name
@@ -314,10 +345,19 @@ func (c *Config) Validate(logger *slog.Logger) error {
 		c.Tokens.ClaimName = buildinfo.AppNamespace
 	case "iss", "sub", "aud", "exp", "nbf", "iat", "jti":
 		return errors.New("configuration option 'tokens.claimName' must not be a registered JWT claim set by tsiam: 'iss', 'sub', 'aud', 'exp', 'nbf', 'iat', 'jti'")
+	case "azp", "nonce", "auth_time", "acr", "amr", "cnf", "act", "may_act", "scope", "client_id":
+		// Relying parties give these claims a meaning, for example verifiers check that 'azp' matches their client ID
+		return errors.New("configuration option 'tokens.claimName' must not be a claim that relying parties interpret: 'azp', 'nonce', 'auth_time', 'acr', 'amr', 'cnf', 'act', 'may_act', 'scope', 'client_id'")
+	}
+	if len(c.Tokens.ClaimName) > 256 {
+		return errors.New("configuration option 'tokens.claimName' must not be longer than 256 characters")
+	}
+	if utils.HasControlChars(c.Tokens.ClaimName) {
+		return errors.New("configuration option 'tokens.claimName' must not contain control characters")
 	}
 
 	// Audience configuration
-	err := c.validateAllowedAudiences()
+	err = c.validateAllowedAudiences()
 	if err != nil {
 		return err
 	}
@@ -336,10 +376,10 @@ func (c *Config) Validate(logger *slog.Logger) error {
 			// Set Ed25519 as default
 			c.SigningKey.Curve = "Ed25519"
 		default:
-			return errors.New("configuration option 'signingKey.curve' is not valid; only allowed value is 'Ed25519'")
+			return errors.New("configuration option 'signingKey.curve' is not valid - only allowed value is 'Ed25519'")
 		}
 	default:
-		return errors.New("configuration option 'signingKey.algorithm' is not valid; allowed values: 'RS256', 'ES256', 'ES384', 'ES512', 'EdDSA'")
+		return errors.New("configuration option 'signingKey.algorithm' is not valid - allowed values: 'RS256', 'ES256', 'ES384', 'ES512', 'EdDSA'")
 	}
 
 	// Keys storage
@@ -357,7 +397,7 @@ func (c *Config) Validate(logger *slog.Logger) error {
 
 	// Memory storage is primarily meant for testing, show a warning
 	case "memory":
-		slog.Warn("Using ephemeral signing key (will not persist across restarts)")
+		logger.Warn("Using ephemeral signing key (will not persist across restarts)")
 
 	// Azure Key Vault Keys
 	case "azurekeyvaultkeys":

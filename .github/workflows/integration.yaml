@@ -15,6 +15,8 @@ env:
 jobs:
   build:
     name: Build tsiam
+    # Skip when running from a fork, which can't access the tailnet: either in a forked repository, or in a pull request opened from one
+    if: ${{ !github.event.repository.fork && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -41,6 +43,8 @@ jobs:
   integration-test:
     name: Integration Test (${{ matrix.auth_mode }})
     needs: build
+    # Same as the build job
+    if: ${{ !github.event.repository.fork && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-26.04
     strategy:
       fail-fast: false

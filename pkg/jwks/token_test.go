@@ -185,6 +185,16 @@ func TestNewToken(t *testing.T) {
 		}
 	})
 
+	t.Run("Empty subject is rejected", func(t *testing.T) {
+		_, err := NewToken(key, TokenRequest{
+			Issuer:   "https://test-issuer.example.com",
+			Audience: "https://test-audience.example.com",
+			Lifetime: 5 * time.Minute,
+			Whois:    testWhois,
+		})
+		require.EqualError(t, err, "token subject is required")
+	})
+
 	t.Run("Timestamps are consistent", func(t *testing.T) {
 		before := time.Now()
 		resp, err := NewToken(key, TokenRequest{
@@ -207,8 +217,9 @@ func TestNewToken(t *testing.T) {
 		exp, ok := parsedToken.Expiration()
 		require.True(t, ok)
 
-		// iat and nbf should be the same
-		assert.Equal(t, iat.Unix(), nbf.Unix(), "IssuedAt and NotBefore should be identical")
+		// nbf is a few seconds before iat, to tolerate clock skew
+		assert.Equal(t, iat.Add(-notBeforeLeeway).Unix(), nbf.Unix())
+		assert.Equal(t, nbf.Unix(), resp.NotBefore)
 
 		// iat should be between before and after
 		assert.GreaterOrEqual(t, iat.Unix(), before.Unix())

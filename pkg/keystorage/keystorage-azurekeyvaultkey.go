@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -106,16 +105,9 @@ func NewAzureKeyVaultKeyStorageWithClient(client AzureKeyVaultKeyClient, keyName
 		keyVersion = ""
 	}
 
-	// Ensure directory exists with restrictive permissions
-	// MkdirAll only honors the mode on creation, so an existing dir with looser bits would silently remain world-readable, the explicit Chmod enforces 0700 on every run
-	dir := filepath.Dir(storagePath)
-	err := os.MkdirAll(dir, 0700)
+	err := ensureKeyDir(storagePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create key storage directory: %w", err)
-	}
-	err = os.Chmod(dir, 0700) //nolint:gosec // directory needs the execute bit, gosec only knows about files
-	if err != nil {
-		return nil, fmt.Errorf("failed to chmod key storage directory: %w", err)
+		return nil, err
 	}
 
 	return &AzureKeyVaultKeyStorage{

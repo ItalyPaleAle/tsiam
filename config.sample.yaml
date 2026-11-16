@@ -84,7 +84,7 @@ logs:
   ## logs.json (boolean)
   ## Description:
   ##   If true, emits logs formatted as JSON, otherwise uses a text-based structured log format.
-  ##   Defaults to false if a TTY is attached (e.g. when running the binary directly in the terminal or in development); true otherwise.
+  ##   Defaults to false if a TTY is attached (e.g. when running the binary directly in the terminal or in development), true otherwise.
   #json: false
 
 tokens:
@@ -141,8 +141,9 @@ tokens:
   ## tokens.claimName (string)
   ## Description:
   ##   Name of the custom JWT claim that carries the caller's Tailscale identity (node ID, name, tags, user, IPs).
-  ##   Must not be one of the registered claims that tsiam sets itself: `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`.
-  ##   Note: This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always .`italypaleale.me/tsiam`
+  ##   Must not be one of the registered claims that tsiam sets itself (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`), or a claim that relying parties interpret (`azp`, `nonce`, `auth_time`, `acr`, `amr`, `cnf`, `act`, `may_act`, `scope`, `client_id`).
+  ##   Must be at most 256 characters.
+  ##   Note: This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always `italypaleale.me/tsiam`.
   ## Default: "italypaleale.me/tsiam"
   #claimName: "italypaleale.me/tsiam"
 

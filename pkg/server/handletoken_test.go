@@ -145,6 +145,72 @@ func TestHandlePostToken_NodeNotInTailnet(t *testing.T) {
 	})
 }
 
+func TestHandlePostToken_NodeState(t *testing.T) {
+	// Returns the response to a token request from the default caller, after applying modify to its whois
+	serve := func(t *testing.T, modify func(whois *tsnetserver.TailscaleWhoIs)) *httptest.ResponseRecorder {
+		t.Helper()
+		s, restore := newTestServer(t, nil, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+			whois := defaultWhois()
+			modify(&whois)
+			return whois, nil
+		})
+		t.Cleanup(restore)
+		return postToken(t, s, "?resource="+testAudience)
+	}
+
+	tests := []struct {
+		name          string
+		modify        func(whois *tsnetserver.TailscaleWhoIs)
+		expectedError string
+	}{
+		{name: "missing node ID", modify: func(w *tsnetserver.TailscaleWhoIs) { w.NodeID = "" }, expectedError: "node_identity"},
+		{name: "expired key", modify: func(w *tsnetserver.TailscaleWhoIs) { w.KeyExpired = true }, expectedError: "node_key_expired"},
+		{name: "key expiry in the past", modify: func(w *tsnetserver.TailscaleWhoIs) { w.KeyExpiry = time.Now().Add(-time.Second) }, expectedError: "node_key_expired"},
+		{name: "jailed", modify: func(w *tsnetserver.TailscaleWhoIs) { w.Jailed = true }, expectedError: "node_restricted"},
+		{name: "unsigned peer API only", modify: func(w *tsnetserver.TailscaleWhoIs) { w.UnsignedPeerAPIOnly = true }, expectedError: "node_restricted"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rr := serve(t, tt.modify)
+			assert.Equal(t, http.StatusForbidden, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.expectedError)
+		})
+	}
+
+	// Returns the expires_in value from the response, and the exp claim of the token
+	issue := func(t *testing.T, keyExpiry time.Time) (expiresIn string, exp time.Time) {
+		t.Helper()
+		rr := serve(t, func(w *tsnetserver.TailscaleWhoIs) { w.KeyExpiry = keyExpiry })
+		require.Equal(t, http.StatusOK, rr.Code, "body: %s", rr.Body.String())
+
+		//nolint:tagliatelle
+		var resp struct {
+			AccessToken string `json:"access_token"`
+			ExpiresIn   string `json:"expires_in"`
+		}
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		parsed, err := jwt.Parse([]byte(resp.AccessToken), jwt.WithVerify(false))
+		require.NoError(t, err)
+		exp, ok := parsed.Expiration()
+		require.True(t, ok)
+		return resp.ExpiresIn, exp
+	}
+
+	t.Run("lifetime is capped at the key expiry", func(t *testing.T) {
+		keyExpiry := time.Now().Add(2 * time.Minute)
+		expiresIn, exp := issue(t, keyExpiry)
+		assert.False(t, exp.After(keyExpiry), "token expires at %v, after the key at %v", exp, keyExpiry)
+		assert.Contains(t, []string{"119", "120"}, expiresIn)
+	})
+
+	t.Run("key expiring after the lifetime doesn't change it", func(t *testing.T) {
+		expiresIn, _ := issue(t, time.Now().Add(time.Hour))
+		assert.Equal(t, "300", expiresIn)
+	})
+}
+
 func TestHandlePostToken_MissingAudience(t *testing.T) {
 	s, restore := newTestServer(t, nil, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
 		return defaultWhois(), nil
@@ -386,6 +452,26 @@ func TestIdentityClaimWhois(t *testing.T) {
 		delete(whois.CapMap, tsnet.AudienceCapability)
 		res := identityClaimWhois(whois, true)
 		assert.Nil(t, res.CapMap)
+	})
+
+	t.Run("Only the identity fields are included", func(t *testing.T) {
+		whois := newWhois()
+		whois.Shared = true
+		whois.KeyExpiry = time.Now().Add(time.Hour)
+		whois.KeyExpired = true
+		whois.Jailed = true
+		whois.UnsignedPeerAPIOnly = true
+
+		res := identityClaimWhois(whois, false)
+		assert.Equal(t, tsnetserver.TailscaleWhoIs{
+			NodeID:        whois.NodeID,
+			Name:          whois.Name,
+			Hostname:      whois.Hostname,
+			IP4:           whois.IP4,
+			IP6:           whois.IP6,
+			UserLoginName: whois.UserLoginName,
+			Tags:          whois.Tags,
+		}, res)
 	})
 
 	t.Run("Input whois is not modified", func(t *testing.T) {

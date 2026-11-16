@@ -52,6 +52,75 @@ func TestValidateClaimName(t *testing.T) {
 			assert.Contains(t, err.Error(), "tokens.claimName")
 		})
 	}
+
+	for _, name := range []string{"azp", "nonce", "auth_time", "acr", "amr", "cnf", "act", "may_act", "scope", "client_id"} {
+		t.Run("rejects claim interpreted by relying parties "+name, func(t *testing.T) {
+			c := newValidConfig()
+			c.Tokens.ClaimName = name
+			err := c.Validate(slog.Default())
+			require.ErrorContains(t, err, "must not be a claim that relying parties interpret")
+		})
+	}
+
+	t.Run("rejects a value longer than 256 characters", func(t *testing.T) {
+		c := newValidConfig()
+		c.Tokens.ClaimName = strings.Repeat("a", 257)
+		err := c.Validate(slog.Default())
+		require.ErrorContains(t, err, "must not be longer than 256 characters")
+	})
+
+	t.Run("rejects a value with control characters", func(t *testing.T) {
+		c := newValidConfig()
+		c.Tokens.ClaimName = "example.com/\nidentity"
+		err := c.Validate(slog.Default())
+		require.ErrorContains(t, err, "must not contain control characters")
+	})
+}
+
+func TestValidateLogs(t *testing.T) {
+	for _, level := range []string{"", "debug", "info", "warn", "error", "ERROR"} {
+		t.Run("accepts level "+level, func(t *testing.T) {
+			c := newValidConfig()
+			c.Logs.Level = level
+			err := c.Validate(slog.Default())
+			require.NoError(t, err)
+		})
+	}
+
+	t.Run("rejects an invalid level", func(t *testing.T) {
+		c := newValidConfig()
+		c.Logs.Level = "verbose"
+		err := c.Validate(slog.Default())
+		require.ErrorContains(t, err, "configuration option 'logs.level' is not valid")
+	})
+}
+
+func TestValidateTSNet(t *testing.T) {
+	t.Run("accepts valid values", func(t *testing.T) {
+		c := newValidConfig()
+		c.TSNet.Hostname = "tsiam-prod-1"
+		c.TSNet.AdvertiseTags = []string{"tag:tsiam", "tag:prod-1"}
+		err := c.Validate(slog.Default())
+		require.NoError(t, err)
+	})
+
+	for _, hostname := range []string{"", "-tsiam", "tsiam.example", "ts iam", strings.Repeat("a", 64)} {
+		t.Run("rejects hostname "+hostname, func(t *testing.T) {
+			c := newValidConfig()
+			c.TSNet.Hostname = hostname
+			err := c.Validate(slog.Default())
+			require.ErrorContains(t, err, "configuration option 'tsnet.hostname' is not valid")
+		})
+	}
+
+	for _, tag := range []string{"tsiam", "tag:", "tag:1tsiam", "tag:ts_iam"} {
+		t.Run("rejects tag "+tag, func(t *testing.T) {
+			c := newValidConfig()
+			c.TSNet.AdvertiseTags = []string{"tag:ok", tag}
+			err := c.Validate(slog.Default())
+			require.ErrorContains(t, err, "configuration option 'tsnet.advertiseTags' contains an invalid tag")
+		})
+	}
 }
 
 func TestValidateAllowedAudiences(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/italypaleale/go-kit/httpserver"
 	"github.com/italypaleale/go-kit/tsnetserver"
@@ -54,6 +55,11 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		errNodeIdentity.WriteResponse(w, r)
 		return
 	}
+	if whois.NodeID == "" {
+		slog.ErrorContext(r.Context(), "Tailscale identity does not include a node ID", slog.String("nodeName", whois.Name))
+		errNodeIdentity.WriteResponse(w, r)
+		return
+	}
 
 	// Only nodes in tsiam's own tailnet can get tokens
 	// Nodes from other tailnets can reach tsiam when they're shared into this tailnet, or when tsiam is shared with their users
@@ -65,6 +71,27 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 			slog.Bool("shared", whois.Shared),
 		)
 		errNodeNotInTailnet.WriteResponse(w, r)
+		return
+	}
+
+	// Tailscale can still deliver requests from nodes that aren't allowed on the tailnet anymore, for example over a connection opened before the node's key expired
+	now := time.Now()
+	if whois.KeyExpired || (!whois.KeyExpiry.IsZero() && !now.Before(whois.KeyExpiry)) {
+		slog.WarnContext(r.Context(), "Rejected caller whose node key expired",
+			slog.String("nodeId", whois.NodeID),
+			slog.String("nodeName", whois.Name),
+		)
+		errNodeKeyExpired.WriteResponse(w, r)
+		return
+	}
+	if whois.Jailed || whois.UnsignedPeerAPIOnly {
+		slog.WarnContext(r.Context(), "Rejected restricted caller",
+			slog.String("nodeId", whois.NodeID),
+			slog.String("nodeName", whois.Name),
+			slog.Bool("jailed", whois.Jailed),
+			slog.Bool("unsignedPeerApiOnly", whois.UnsignedPeerAPIOnly),
+		)
+		errNodeRestricted.WriteResponse(w, r)
 		return
 	}
 
@@ -112,11 +139,17 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Tokens don't outlive the caller's node key
+	lifetime := cfg.Tokens.Lifetime
+	if !whois.KeyExpiry.IsZero() {
+		lifetime = min(lifetime, whois.KeyExpiry.Sub(now))
+	}
+
 	// Create JWT token
 	token, err := jwks.NewToken(s.signingKey, jwks.TokenRequest{
 		Issuer:    s.tokenIssuer(),
 		Audience:  audience,
-		Lifetime:  cfg.Tokens.Lifetime,
+		Lifetime:  lifetime,
 		Subject:   resolveSubject(cfg, whois, matchedCap),
 		Whois:     identityClaimWhois(whois, cfg.Tokens.IncludeCapabilities),
 		ClaimName: cfg.Tokens.ClaimName,
@@ -221,15 +254,26 @@ func sanitizeWhois(whois tsnetserver.TailscaleWhoIs) tsnetserver.TailscaleWhoIs 
 // Tokens are signed but not encrypted, so everything in the payload is readable by every relying party and by anyone the token is shown to
 // tsiam's own capability grants are kept only when the operator opts in with `tokens.includeCapabilities`
 func identityClaimWhois(whois tsnetserver.TailscaleWhoIs, includeCapabilities bool) tsnetserver.TailscaleWhoIs {
-	// Build a new map instead of deleting keys
+	// Copy the object
+	res := tsnetserver.TailscaleWhoIs{
+		NodeID:        whois.NodeID,
+		Name:          whois.Name,
+		Hostname:      whois.Hostname,
+		IP4:           whois.IP4,
+		IP6:           whois.IP6,
+		UserLoginName: whois.UserLoginName,
+		Tags:          whois.Tags,
+	}
+
+	// Build a new map instead of deleting keys, since the map is shared with the caller
 	capValues, ok := whois.CapMap[tsnet.AudienceCapability]
-	whois.CapMap = nil
 	if includeCapabilities && ok {
-		whois.CapMap = tailcfg.PeerCapMap{
+		res.CapMap = tailcfg.PeerCapMap{
 			tsnet.AudienceCapability: capValues,
 		}
 	}
-	return whois
+
+	return res
 }
 
 // Returns the value to use for the JWT `sub` claim, based on the configured subject-claim source

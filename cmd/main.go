@@ -22,7 +22,19 @@ import (
 	"github.com/italypaleale/tsiam/pkg/server"
 )
 
+const (
+	// Maximum time to load or create the signing key at startup, which can involve Azure Key Vault
+	getKeyTimeout = 2 * time.Minute
+	// Maximum time to join the tailnet at startup, which includes waiting for interactive login
+	joinTailnetTimeout = 5 * time.Minute
+)
+
 func main() {
+	exit, code := handleArgs(os.Args[1:], os.Stdout, os.Stderr)
+	if exit {
+		os.Exit(code)
+	}
+
 	// Init a logger used for initialization only, to report initialization errors
 	initLogger := slog.Default().
 		With(slog.String("app", buildinfo.AppName)).
@@ -49,6 +61,13 @@ func main() {
 
 	shutdowns := &shutdownManager{
 		fns: make([]servicerunner.Service, 0, 4),
+	}
+
+	// Check the log level first: creating the logger would fail too, but its error doesn't name the configuration option
+	err = cfg.Logs.Validate()
+	if err != nil {
+		slogkit.FatalError(initLogger, "Invalid configuration", err)
+		return
 	}
 
 	// Get the logger and set it in the context
@@ -100,8 +119,11 @@ func main() {
 	}
 	shutdowns.Add(tracerShutdownFn)
 
-	// Get the signing signingKey
-	signingKey, err := getKey(ctx)
+	// Get the signing key
+	// Startup steps that call external services have a timeout, so tsiam exits with an error instead of hanging
+	keyCtx, keyCancel := context.WithTimeout(ctx, getKeyTimeout)
+	signingKey, err := getKey(keyCtx)
+	keyCancel()
 	if err != nil {
 		shutdowns.Run(log)
 		slogkit.FatalError(log, "Failed to get signing key", err)
@@ -121,7 +143,8 @@ func main() {
 	}
 
 	// Init tsnetServer
-	ts, err := tsnetserver.NewTSNetServer(ctx, tsnetserver.NewTSNetServerOpts{
+	tsnetCtx, tsnetCancel := context.WithTimeout(ctx, joinTailnetTimeout)
+	ts, err := tsnetserver.NewTSNetServer(tsnetCtx, tsnetserver.NewTSNetServerOpts{
 		Hostname:      cfg.TSNet.Hostname,
 		ClientID:      cfg.TSNet.ClientID,
 		IDToken:       idToken,
@@ -131,6 +154,7 @@ func main() {
 		Ephemeral:     cfg.TSNet.Ephemeral,
 		AdvertiseTags: cfg.TSNet.AdvertiseTags,
 	})
+	tsnetCancel()
 	if err != nil {
 		shutdowns.Run(log)
 		slogkit.FatalError(log, "Failed to init TSNet server", err)
