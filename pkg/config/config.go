@@ -267,6 +267,8 @@ func (c *Config) GetInstanceID() string {
 }
 
 // Validate the configuration and performs some sanitization
+//
+//nolint:gocyclo
 func (c *Config) Validate(logger *slog.Logger) error {
 	// Token configuration
 	c.Tokens.Lifetime = c.Tokens.Lifetime.Truncate(time.Second)

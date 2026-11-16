@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -190,9 +191,9 @@ func (s *shutdownManager) Run(log *slog.Logger) {
 }
 
 func readIDTokenFile(filePath string) (string, error) {
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) // #nosec G304 -- Reading user-provided path by design
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error reading token file %q: %w", filePath, err)
 	}
 
 	token := strings.TrimSpace(string(data))
