@@ -13,7 +13,6 @@ import (
 
 	httpserver "github.com/italypaleale/go-kit/httpserver"
 	"github.com/italypaleale/go-kit/tsnetserver"
-	"github.com/lestrrat-go/jwx/v4/jwa"
 	"github.com/lestrrat-go/jwx/v4/jwk"
 	sloghttp "github.com/samber/slog-http"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -66,23 +65,14 @@ func NewServer(opts NewServerOpts) (s *Server, err error) {
 	if opts.SigningKey == nil {
 		return nil, errors.New("signing key is required")
 	}
-	keyAlgorithm, ok := opts.SigningKey.Algorithm()
-	if !ok {
-		return nil, errors.New("signing key does not contain an algorithm")
+
+	err = jwks.ValidateSigningKey(opts.SigningKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid signing key: %w", err)
 	}
-	signingAlgorithm, ok := keyAlgorithm.(jwa.SignatureAlgorithm)
-	if !ok {
-		return nil, errors.New("signing key algorithm is not a signature algorithm")
-	}
-	if signingAlgorithm.IsSymmetric() {
-		return nil, errors.New("symmetric signing keys are not supported")
-	}
-	asymmetricKey, ok := opts.SigningKey.(jwk.AsymmetricKey)
-	if !ok {
-		return nil, errors.New("signing key must be asymmetric")
-	}
-	if !asymmetricKey.IsPrivate() {
-		return nil, errors.New("signing key must be private")
+
+	if opts.TSNetServer == nil {
+		return nil, errors.New("tsnet server is required")
 	}
 
 	s = &Server{
@@ -143,12 +133,16 @@ func (s *Server) initAppServer() {
 		// Log requests
 		sloghttp.NewWithFilters(slog.Default(), filters...),
 		// Wrap with OpenTelemetry HTTP instrumentation for metrics and tracing
-		otelhttp.NewMiddleware("server"),
+		otelhttp.NewMiddleware("server", otelhttp.WithServerName(net.JoinHostPort(s.hostname(), "443"))),
 		// Only the public endpoints are reachable over Funnel, and Funnel requests are rate-limited before they're logged or traced
 		// It has its own limiter, because sharing the routes' limiter would count allowed Funnel requests twice
 		requireFunnelAllowed(rateLimit(publicRateLimitPerSecond, time.Second)),
 		// Reject oversized requests upfront based on Content-Length so we never read or TLS-decrypt the body
 		rejectOversizedRequest(maxBodySize),
+		// Reject requests for other hosts before they're logged or traced
+		requireKnownHost(s.hostname),
+		// Set on every response, including errors returned by the middlewares above
+		setNoSniff,
 		// Recover from panics in the middlewares above
 		sloghttp.Recovery,
 	}

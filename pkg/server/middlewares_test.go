@@ -6,11 +6,15 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/italypaleale/go-kit/tsnetserver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"tailscale.com/net/tsaddr"
 
 	"github.com/italypaleale/tsiam/pkg/config"
@@ -160,7 +164,7 @@ func TestRouteRateLimits(t *testing.T) {
 
 	serve := func(t *testing.T, s *Server, method string, path string, remoteAddr string) *httptest.ResponseRecorder {
 		t.Helper()
-		req := httptest.NewRequestWithContext(t.Context(), method, path, nil)
+		req := httptest.NewRequestWithContext(t.Context(), method, "https://"+testHostname+path, nil)
 		req.RemoteAddr = remoteAddr
 		rr := httptest.NewRecorder()
 		s.handler.ServeHTTP(rr, req)
@@ -226,7 +230,7 @@ func TestRequireFunnelAllowed(t *testing.T) {
 
 	serve := func(t *testing.T, s *Server, method string, path string) *httptest.ResponseRecorder {
 		t.Helper()
-		req := httptest.NewRequestWithContext(t.Context(), method, path, nil)
+		req := httptest.NewRequestWithContext(t.Context(), method, "https://"+testHostname+path, nil)
 		req.Header.Set(tsiamHeaderName, "1")
 		rr := httptest.NewRecorder()
 		s.handler.ServeHTTP(rr, req)
@@ -266,7 +270,7 @@ func TestRequireFunnelAllowed(t *testing.T) {
 			assert.Empty(t, rr.Header().Get("Allow"), "%s %s", req.method, req.path)
 			assert.Empty(t, rr.Header().Get("Location"), "%s %s", req.method, req.path)
 			// The token rate limiter would set this header to 3, overwriting the gate's value
-			assert.Equal(t, strconv.Itoa(publicRateLimitPerSecond), rr.Header().Get("X-RateLimit-Limit"), "%s %s should not reach the token rate limiter", req.method, req.path)
+			assert.Equal(t, strconv.Itoa(publicRateLimitPerSecond), rr.Header().Get("X-Ratelimit-Limit"), "%s %s should not reach the token rate limiter", req.method, req.path)
 		}
 	})
 
@@ -318,7 +322,7 @@ func TestPanicRecovery(t *testing.T) {
 			panic("boom")
 		})
 
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token?resource="+testAudience, nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://"+testHostname+"/token?resource="+testAudience, nil)
 		req.Header.Set(tsiamHeaderName, "1")
 		rr := httptest.NewRecorder()
 		s.handler.ServeHTTP(rr, req)
@@ -333,11 +337,126 @@ func TestPanicRecovery(t *testing.T) {
 		isFunneledRequest = func(*http.Request) bool { panic("boom") }
 		t.Cleanup(func() { isFunneledRequest = prev })
 
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/jwks.json", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://"+testHostname+"/.well-known/jwks.json", nil)
 		rr := httptest.NewRecorder()
 		s.handler.ServeHTTP(rr, req)
 		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 	})
+}
+
+func TestIsKnownHost(t *testing.T) {
+	tests := []struct {
+		host     string
+		expected bool
+	}{
+		{host: testHostname, expected: true},
+		{host: testHostname + ":443", expected: true},
+		{host: testHostname + ".", expected: true},
+		{host: testHostname + ".:443", expected: true},
+		{host: strings.ToUpper(testHostname), expected: true},
+		{host: "tsiam", expected: true},
+		{host: "TSIAM:443", expected: true},
+		{host: testHostname + ":8443", expected: false},
+		{host: "tsiam.other-tailnet.ts.net", expected: false},
+		{host: "test-tailnet", expected: false},
+		{host: "example.com", expected: false},
+		{host: "100.64.0.10", expected: false},
+		{host: "[fd7a:115c:a1e0::1]:443", expected: false},
+		{host: "", expected: false},
+	}
+
+	for _, test := range tests {
+		assert.Equal(t, test.expected, isKnownHost(test.host, testHostname), "host %q", test.host)
+	}
+}
+
+// Exercises the Host check and the nosniff header through the full handler chain
+func TestRequireKnownHost(t *testing.T) {
+	serve := func(t *testing.T, s *Server, host string, path string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://"+testHostname+path, nil)
+		req.Host = host
+		rr := httptest.NewRecorder()
+		s.handler.ServeHTTP(rr, req)
+		return rr
+	}
+
+	s, restore := newTestServer(t, nil, nil)
+	t.Cleanup(restore)
+	s.initAppServer()
+
+	t.Run("Own hostname is allowed", func(t *testing.T) {
+		rr := serve(t, s, testHostname, "/healthz")
+		assert.Equal(t, http.StatusNoContent, rr.Code)
+		assert.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
+
+		assert.Equal(t, http.StatusNoContent, serve(t, s, "tsiam", "/healthz").Code)
+
+		rr = serve(t, s, testHostname, "/not-found")
+		assert.Equal(t, http.StatusNotFound, rr.Code)
+		assert.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
+	})
+
+	t.Run("Other hosts are rejected", func(t *testing.T) {
+		for _, host := range []string{"example.com", testHostname + ":8443", "100.64.0.10"} {
+			rr := serve(t, s, host, "/healthz")
+			assert.Equal(t, http.StatusMisdirectedRequest, rr.Code, "host %q", host)
+			assert.Contains(t, rr.Body.String(), "misdirected_request", "host %q", host)
+			assert.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"), "host %q", host)
+		}
+	})
+
+	t.Run("Check is skipped when the hostname is unknown", func(t *testing.T) {
+		s, restore := newTestServer(t, nil, nil)
+		t.Cleanup(restore)
+		s.hostname = func() string { return "" }
+		s.initAppServer()
+
+		assert.Equal(t, http.StatusNoContent, serve(t, s, "example.com", "/healthz").Code)
+	})
+}
+
+// Different spellings of the Host header must not create new metric series
+func TestOtelServerName(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+
+	s, restore := newTestServer(t, nil, nil)
+	t.Cleanup(restore)
+	s.initAppServer()
+
+	// All of these pass requireKnownHost
+	for _, host := range []string{testHostname, strings.ToUpper(testHostname), testHostname + ".", testHostname + ":443", "tsiam"} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://"+testHostname+"/healthz", nil)
+		req.Host = host
+		rr := httptest.NewRecorder()
+		s.handler.ServeHTTP(rr, req)
+		require.Equal(t, http.StatusNoContent, rr.Code, "host %q", host)
+	}
+
+	var rm metricdata.ResourceMetrics
+	err := reader.Collect(t.Context(), &rm)
+	require.NoError(t, err)
+
+	found := false
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "http.server.request.duration" {
+				continue
+			}
+			found = true
+
+			hist, ok := m.Data.(metricdata.Histogram[float64])
+			require.True(t, ok)
+			require.Len(t, hist.DataPoints, 1, "all requests should be recorded in the same series")
+			addr, ok := hist.DataPoints[0].Attributes.Value("server.address")
+			require.True(t, ok)
+			assert.Equal(t, testHostname, addr.AsString())
+		}
+	}
+	require.True(t, found, "metric http.server.request.duration not found")
 }
 
 func TestRequireEmptyBody(t *testing.T) {

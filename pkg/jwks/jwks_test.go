@@ -39,7 +39,38 @@ func TestGetPublicJWKSAsJSON(t *testing.T) {
 				gotAlg, ok := pub.Algorithm()
 				require.True(t, ok)
 				assert.Equal(t, wantAlg, gotAlg)
+
+				use, ok := pub.KeyUsage()
+				require.True(t, ok)
+				assert.Equal(t, "sig", use)
 			})
+		}
+	})
+
+	t.Run("sets usage on keys without one", func(t *testing.T) {
+		for _, private := range []bool{true, false} {
+			key, err := NewSigningKey("ES256", "")
+			require.NoError(t, err)
+			err = key.Remove(jwk.KeyUsageKey)
+			require.NoError(t, err)
+			if !private {
+				key, err = key.PublicKey()
+				require.NoError(t, err)
+			}
+
+			data, err := GetPublicJWKSAsJSON(key)
+			require.NoError(t, err)
+
+			parsed, err := jwk.Parse(data)
+			require.NoError(t, err)
+			pub, ok := parsed.Key(0)
+			require.True(t, ok)
+			use, ok := pub.KeyUsage()
+			require.True(t, ok)
+			assert.Equal(t, "sig", use)
+
+			// The source key is not modified
+			assert.False(t, key.Has(jwk.KeyUsageKey), "private=%v", private)
 		}
 	})
 

@@ -86,6 +86,15 @@ func TestNewSigningKey(t *testing.T) {
 		assert.Nil(t, key)
 	})
 
+	t.Run("generated key is for signatures", func(t *testing.T) {
+		key, err := NewSigningKey("ES256", "")
+		require.NoError(t, err)
+
+		use, ok := key.KeyUsage()
+		require.True(t, ok)
+		assert.Equal(t, "sig", use)
+	})
+
 	t.Run("generated key is private", func(t *testing.T) {
 		// Every supported algorithm must produce a private key (carries the `d` parameter),
 		// otherwise the service could not sign tokens
@@ -139,6 +148,149 @@ func TestNewSigningKey_KeyID(t *testing.T) {
 		}
 		assert.Len(t, kids, 100)
 	})
+}
+
+func TestValidateSigningKey(t *testing.T) {
+	t.Run("generated keys are valid", func(t *testing.T) {
+		for _, alg := range []string{"RS256", "ES256", "ES384", "ES512", "EdDSA"} {
+			t.Run(alg, func(t *testing.T) {
+				key, err := NewSigningKey(alg, "")
+				require.NoError(t, err)
+
+				err = ValidateSigningKey(key)
+				require.NoError(t, err)
+			})
+		}
+	})
+
+	t.Run("key without usage is valid", func(t *testing.T) {
+		key, err := NewSigningKey("ES256", "")
+		require.NoError(t, err)
+		err = key.Remove(jwk.KeyUsageKey)
+		require.NoError(t, err)
+
+		err = ValidateSigningKey(key)
+		require.NoError(t, err)
+	})
+
+	// Returns a new key for the algorithm, after applying fn to it
+	newKey := func(t *testing.T, alg string, fn func(key jwk.Key) jwk.Key) jwk.Key {
+		t.Helper()
+		key, err := NewSigningKey(alg, "")
+		require.NoError(t, err)
+		return fn(key)
+	}
+	set := func(t *testing.T, name string, value any) func(key jwk.Key) jwk.Key {
+		t.Helper()
+		return func(key jwk.Key) jwk.Key {
+			err := key.Set(name, value)
+			require.NoError(t, err)
+			return key
+		}
+	}
+	remove := func(t *testing.T, name string) func(key jwk.Key) jwk.Key {
+		t.Helper()
+		return func(key jwk.Key) jwk.Key {
+			err := key.Remove(name)
+			require.NoError(t, err)
+			return key
+		}
+	}
+
+	symmetricKey, err := jwk.Import[jwk.Key]([]byte("01234567890123456789012345678901"))
+	require.NoError(t, err)
+	err = symmetricKey.Set(jwk.AlgorithmKey, jwa.HS256())
+	require.NoError(t, err)
+	err = symmetricKey.Set(jwk.KeyIDKey, "symmetric")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		key           jwk.Key
+		expectedError string
+	}{
+		{
+			name:          "missing algorithm",
+			key:           newKey(t, "ES256", remove(t, jwk.AlgorithmKey)),
+			expectedError: "signing key does not contain an algorithm",
+		},
+		{
+			name:          "non-signature algorithm",
+			key:           newKey(t, "RS256", set(t, jwk.AlgorithmKey, jwa.RSA_OAEP())),
+			expectedError: "signing key algorithm is not a signature algorithm",
+		},
+		{
+			name:          "none algorithm",
+			key:           newKey(t, "ES256", set(t, jwk.AlgorithmKey, jwa.NoSignature())),
+			expectedError: "signing key algorithm 'none' is not supported",
+		},
+		{
+			name:          "symmetric algorithm",
+			key:           symmetricKey,
+			expectedError: "signing key algorithm 'HS256' is not supported",
+		},
+		{
+			name:          "unsupported asymmetric algorithm",
+			key:           newKey(t, "RS256", set(t, jwk.AlgorithmKey, jwa.PS256())),
+			expectedError: "signing key algorithm 'PS256' is not supported",
+		},
+		{
+			name:          "key type doesn't match the algorithm",
+			key:           newKey(t, "ES256", set(t, jwk.AlgorithmKey, jwa.RS256())),
+			expectedError: "signing key has type 'EC', which can't be used with algorithm 'RS256'",
+		},
+		{
+			name:          "curve doesn't match the algorithm",
+			key:           newKey(t, "ES256", set(t, jwk.AlgorithmKey, jwa.ES384())),
+			expectedError: "signing key has curve 'P-256', which can't be used with algorithm 'ES384'",
+		},
+		{
+			name: "public key",
+			key: newKey(t, "ES256", func(key jwk.Key) jwk.Key {
+				pub, err := key.PublicKey()
+				require.NoError(t, err)
+				return pub
+			}),
+			expectedError: "signing key must be private",
+		},
+		{
+			name:          "missing key ID",
+			key:           newKey(t, "ES256", remove(t, jwk.KeyIDKey)),
+			expectedError: "signing key does not contain a key ID ('kid')",
+		},
+		{
+			name:          "key ID with control characters",
+			key:           newKey(t, "ES256", set(t, jwk.KeyIDKey, "key\n1")),
+			expectedError: "signing key ID ('kid') must contain only printable ASCII characters",
+		},
+		{
+			name:          "key ID with non-ASCII characters",
+			key:           newKey(t, "ES256", set(t, jwk.KeyIDKey, "clé")),
+			expectedError: "signing key ID ('kid') must contain only printable ASCII characters",
+		},
+		{
+			name:          "encryption key",
+			key:           newKey(t, "ES256", set(t, jwk.KeyUsageKey, jwk.ForEncryption)),
+			expectedError: "signing key has usage ('use') 'enc', but it must be 'sig'",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateSigningKey(test.key)
+			require.ErrorContains(t, err, test.expectedError)
+		})
+	}
+}
+
+func TestKeyAlgorithm(t *testing.T) {
+	key, err := NewSigningKey("ES256", "")
+	require.NoError(t, err)
+	assert.Equal(t, "ES256", KeyAlgorithm(key))
+
+	err = key.Remove(jwk.AlgorithmKey)
+	require.NoError(t, err)
+	assert.Empty(t, KeyAlgorithm(key))
 }
 
 func assertAlgorithm(t *testing.T, key jwk.Key, want jwa.SignatureAlgorithm) {

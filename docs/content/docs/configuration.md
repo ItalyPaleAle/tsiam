@@ -121,6 +121,10 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 | `signingKey.storage` | string | `"file"` | Storage backend: `file`, `memory`, `AzureKeyVaultKeys`, `AzureKeyVaultSecrets` |
 | `signingKey.algorithm` | string | `"ES256"` | Signing algorithm: `RS256`, `ES256`, `ES384`, `ES512`, `EdDSA` |
 
+> Microsoft Entra ID only accepts tokens signed with `RS256`. AWS and Google Cloud also accept `ES256`.
+
+> ⚠️ Note: Changing `signingKey.algorithm` doesn't replace a signing key that's already stored: tsiam logs a warning and keeps using the stored key. To switch algorithm, delete the stored key and restart tsiam. Tokens signed with the old key stop working.
+
 **File storage** (`signingKey.storage: file`):
 
 | Option | Type | Default | Description |
@@ -150,6 +154,8 @@ The wrapped signing key file records which version of the Key Vault key wrapped 
 | `signingKey.azureKeyVaultSecrets.tenantId` | string | — | Azure AD tenant ID |
 | `signingKey.azureKeyVaultSecrets.clientId` | string | — | Azure AD application client ID |
 | `signingKey.azureKeyVaultSecrets.clientSecret` | string | — | Azure AD application client secret |
+
+If several tsiam instances share the same secret, start one of them first so it creates the signing key. Key Vault can't stop two instances that start at the same time from each storing a different key.
 
 ### `logs`
 

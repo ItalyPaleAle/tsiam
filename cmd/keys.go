@@ -16,6 +16,8 @@ import (
 )
 
 func getKey(ctx context.Context) (jwk.Key, error) {
+	cfg := config.Get()
+
 	// Get the key storage
 	ks, err := getKeyStorage()
 	if err != nil {
@@ -27,29 +29,53 @@ func getKey(ctx context.Context) (jwk.Key, error) {
 		return newSigningKey()
 	}
 
-	// Check if there's an existing key
+	key, err := loadOrCreateKey(ctx, ks)
+	if err != nil {
+		return nil, err
+	}
+
+	keyAlgorithm := jwks.KeyAlgorithm(key)
+	if keyAlgorithm != cfg.SigningKey.Algorithm {
+		slog.WarnContext(ctx, "Stored signing key doesn't use the algorithm set in 'signingKey.algorithm', so tokens are signed with the stored key's algorithm - to switch, delete the stored key and restart tsiam",
+			slog.String("keyAlgorithm", keyAlgorithm),
+			slog.String("configuredAlgorithm", cfg.SigningKey.Algorithm),
+		)
+	}
+
+	return key, nil
+}
+
+// Loads the key from storage, or generates and stores a new one if the storage doesn't contain a key yet
+func loadOrCreateKey(ctx context.Context, ks keystorage.KeyStorage) (jwk.Key, error) {
 	key, err := ks.Load(ctx)
 	switch {
 	case err == nil:
-		// No error, key was loaded
 		return key, nil
-	case keystorage.IsKeyNotExistError(err):
-		// Key doesn't exist - need to generate a new one
-		key, err = newSigningKey()
-		if err != nil {
-			return nil, err
-		}
+	case !keystorage.IsKeyNotExistError(err):
+		return nil, fmt.Errorf("failed to load existing key: %w", err)
+	}
 
-		// Persist the new key
-		err = ks.Store(ctx, key)
-		if err != nil {
-			return nil, fmt.Errorf("failed to store newly-generated key: %w", err)
-		}
+	// Key doesn't exist - need to generate a new one
+	key, err = newSigningKey()
+	if err != nil {
+		return nil, err
+	}
 
+	// Persist the new key
+	err = ks.Store(ctx, key)
+	switch {
+	case err == nil:
+		return key, nil
+	case keystorage.IsKeyExistError(err):
+		// Another instance stored its key in the meantime, so use that one instead
+		slog.InfoContext(ctx, "Another instance stored a signing key first, using that key instead")
+		key, err = ks.Load(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load key stored by another instance: %w", err)
+		}
 		return key, nil
 	default:
-		// We had an error
-		return nil, fmt.Errorf("failed to load existing key: %w", err)
+		return nil, fmt.Errorf("failed to store newly-generated key: %w", err)
 	}
 }
 

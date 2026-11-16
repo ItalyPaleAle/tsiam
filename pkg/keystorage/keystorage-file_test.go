@@ -57,6 +57,29 @@ func TestFileKeyStorage(t *testing.T) {
 	assert.Equal(t, jwa.ES256(), alg, "Algorithm mismatch")
 }
 
+func TestFileKeyStorage_StoreExisting(t *testing.T) {
+	storage, err := NewFileKeyStorage(filepath.Join(t.TempDir(), "key.json"))
+	require.NoError(t, err)
+
+	firstKey, err := jwks.NewSigningKey("ES256", "")
+	require.NoError(t, err)
+	err = storage.Store(t.Context(), firstKey)
+	require.NoError(t, err)
+
+	// Another instance stored its key first, so this one isn't saved
+	secondKey, err := jwks.NewSigningKey("ES256", "")
+	require.NoError(t, err)
+	err = storage.Store(t.Context(), secondKey)
+	require.Error(t, err)
+	assert.True(t, IsKeyExistError(err))
+
+	loadedKey, err := storage.Load(t.Context())
+	require.NoError(t, err)
+	expectedKid, _ := firstKey.KeyID()
+	kid, _ := loadedKey.KeyID()
+	assert.Equal(t, expectedKid, kid)
+}
+
 func TestFileKeyStorage_InvalidPath(t *testing.T) {
 	// Try to create storage with invalid path
 	_, err := NewFileKeyStorage("/invalid/nonexistent/path/key.pem")

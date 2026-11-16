@@ -104,6 +104,7 @@ func (a *AzureKeyVaultSecretStorage) Load(ctx context.Context) (jwk.Key, error) 
 }
 
 // Store saves the signing key to Azure Key Vault
+// Key Vault doesn't support conditional writes, so this overwrites a secret that another instance stored in the meantime
 func (a *AzureKeyVaultSecretStorage) Store(ctx context.Context, key jwk.Key) error {
 	// Marshal the key to JSON
 	data, err := json.Marshal(key)

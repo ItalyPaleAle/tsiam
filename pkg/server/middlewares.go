@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/go-chi/httprate"
@@ -153,6 +154,49 @@ func isAllowedFunnelPath(path string) bool {
 	default:
 		return false
 	}
+}
+
+// Returns a middleware that responds with 421 to requests whose Host header isn't tsiam's own hostname
+// Clients reach tsiam through its MagicDNS name, so other values only come from clients that make them up, and would end up in logs and traces
+// The check is skipped while the hostname is unknown
+func requireKnownHost(hostname func() string) httpserver.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			expected := hostname()
+			if expected != "" && !isKnownHost(r.Host, expected) {
+				errMisdirectedRequest.WriteResponse(w, r)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// Returns true if the value of a Host header is hostname, or its short name (the first label)
+// The TLS certificate is only valid for the full name, but clients that skip verification can use the short name
+// The port is optional, and it must be 443 when present, since that's the only port tsiam listens on
+func isKnownHost(host string, hostname string) bool {
+	h, port, err := net.SplitHostPort(host)
+	if err == nil {
+		if port != "443" {
+			return false
+		}
+		host = h
+	}
+
+	host = strings.TrimSuffix(host, ".")
+	hostname = strings.TrimSuffix(hostname, ".")
+	shortName, _, _ := strings.Cut(hostname, ".")
+	return strings.EqualFold(host, hostname) || strings.EqualFold(host, shortName)
+}
+
+// Stops browsers from interpreting responses as a content type other than the declared one
+func setNoSniff(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func requireNotFunneledRequest(next http.HandlerFunc) http.HandlerFunc {

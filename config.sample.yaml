@@ -165,6 +165,7 @@ signingKey:
   ## Description:
   ##   Signing algorithm to use.
   ##   Supported values: RS256, ES256, ES384, ES512, EdDSA.
+  ##   Changing this doesn't replace a signing key that is already stored.
   ## Default: "ES256"
   #algorithm: "ES256"
 

@@ -172,7 +172,7 @@ func (a *AzureKeyVaultKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 			slog.String("path", a.storagePath),
 		)
 
-		err = a.Store(ctx, key)
+		err = a.store(ctx, key, true)
 		if err != nil {
 			slog.WarnContext(ctx, "Failed to rewrite wrapped signing key file", slog.String("path", a.storagePath), slog.Any("error", err))
 		}
@@ -258,8 +258,14 @@ func (a *AzureKeyVaultKeyStorage) unwrap(ctx context.Context, keyVersion string,
 	return resp.Result, nil
 }
 
-// Store saves the signing key to disk in wrapped (encrypted) form using Azure Key Vault
+// Store saves the signing key to disk in wrapped (encrypted) form using Azure Key Vault, if the file doesn't exist yet
 func (a *AzureKeyVaultKeyStorage) Store(ctx context.Context, key jwk.Key) error {
+	return a.store(ctx, key, false)
+}
+
+// Saves the signing key to disk in wrapped (encrypted) form using Azure Key Vault
+// If overwrite is false and the file exists, it returns errKeyExists
+func (a *AzureKeyVaultKeyStorage) store(ctx context.Context, key jwk.Key, overwrite bool) error {
 	// Marshal the key to JSON
 	data, err := json.Marshal(key)
 	if err != nil {
@@ -313,8 +319,14 @@ func (a *AzureKeyVaultKeyStorage) Store(ctx context.Context, key jwk.Key) error 
 	}
 
 	// Atomic write so a torn write cannot leave an unrecoverable wrapped-ciphertext blob on disk
-	err = writeFileAtomic(a.storagePath, out)
-	if err != nil {
+	if overwrite {
+		err = writeFileAtomic(a.storagePath, out)
+	} else {
+		err = writeFileExclusive(a.storagePath, out)
+	}
+	if errors.Is(err, fs.ErrExist) {
+		return errKeyExists
+	} else if err != nil {
 		return fmt.Errorf("failed to write wrapped key file: %w", err)
 	}
 

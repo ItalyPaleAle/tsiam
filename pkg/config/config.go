@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/italypaleale/go-kit/utils"
+
 	"github.com/italypaleale/tsiam/pkg/buildinfo"
 )
 
@@ -168,6 +170,7 @@ type ConfigSigningKey struct {
 
 	// Signing algorithm to use.
 	// Supported values: RS256, ES256, ES384, ES512, EdDSA.
+	// Changing this doesn't replace a signing key that is already stored.
 	// +default "ES256"
 	Algorithm string `yaml:"algorithm"`
 
@@ -424,7 +427,7 @@ func (c *Config) validateAllowedAudiences() error {
 		}
 
 		// Requested audiences with control characters are rejected at request time, so an entry containing them could never be matched
-		if HasControlChars(trimmed) {
+		if utils.HasControlChars(trimmed) {
 			return errors.New("configuration option 'tokens.allowedAudiences' contains an audience with control or non-printable characters")
 		}
 
@@ -432,17 +435,6 @@ func (c *Config) validateAllowedAudiences() error {
 	}
 
 	return nil
-}
-
-// HasControlChars returns true if s contains ASCII control characters (0x00-0x1F) or DEL (0x7F)
-// Audiences end up in JWT claims and in log lines, so a CR/LF or other control byte would let an attacker inject log lines or break consumers that don't quote the audience
-func HasControlChars(s string) bool {
-	for _, c := range s {
-		if c < 0x20 || c == 0x7f {
-			return true
-		}
-	}
-	return false
 }
 
 func (c *Config) GetTSNetStateDir() string {

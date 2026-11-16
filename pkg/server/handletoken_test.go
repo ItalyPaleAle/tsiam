@@ -97,6 +97,8 @@ func TestHandlePostToken_WhoIsFailure(t *testing.T) {
 
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 	assert.Contains(t, rr.Body.String(), "node_identity")
+	// Error responses aren't cached either
+	assert.Equal(t, "no-store", rr.Header().Get("Cache-Control"))
 }
 
 func TestHandlePostToken_NodeNotInTailnet(t *testing.T) {
@@ -211,6 +213,8 @@ func TestHandlePostToken_Success(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rr.Code, "body: %s", rr.Body.String())
 	assert.Contains(t, rr.Header().Get("Content-Type"), "application/json")
+	assert.Equal(t, "no-store", rr.Header().Get("Cache-Control"))
+	assert.Equal(t, "no-cache", rr.Header().Get("Pragma"))
 
 	//nolint:tagliatelle
 	var resp struct {

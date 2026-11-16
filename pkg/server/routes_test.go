@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/italypaleale/tsiam/pkg/config"
 	"github.com/italypaleale/tsiam/pkg/jwks"
 )
 
@@ -256,6 +257,7 @@ func TestHandleGetJWKS(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Header().Get(httpserver.HeaderContentType), "application/json")
+	assert.Equal(t, "public, max-age=300", rr.Header().Get("Cache-Control"))
 
 	// Body must be byte-identical to the precomputed JWKS; any drift between the cached bytes and what's served would break relying-party verification
 	assert.Equal(t, string(s.publicJwks), rr.Body.String())
@@ -279,6 +281,10 @@ func TestHandleGetOpenIDConfiguration(t *testing.T) {
 	for _, algorithm := range algorithms {
 		t.Run(algorithm, func(t *testing.T) {
 			s := newDiscoveryServer(t, algorithm)
+			restore := config.SetTestConfig(func(c *config.Config) {
+				c.Tokens.ClaimName = "example.com/identity"
+			})
+			defer restore()
 
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/.well-known/openid-configuration", nil)
 			rr := httptest.NewRecorder()
@@ -286,6 +292,7 @@ func TestHandleGetOpenIDConfiguration(t *testing.T) {
 
 			require.Equal(t, http.StatusOK, rr.Code)
 			assert.Contains(t, rr.Header().Get(httpserver.HeaderContentType), "application/json")
+			assert.Equal(t, "public, max-age=300", rr.Header().Get("Cache-Control"))
 
 			var doc oidcConfigurationDocument
 			err := json.Unmarshal(rr.Body.Bytes(), &doc)
@@ -295,7 +302,7 @@ func TestHandleGetOpenIDConfiguration(t *testing.T) {
 			assert.Equal(t, expectedBase, doc.Issuer)
 			assert.Equal(t, expectedBase+"/token", doc.TokenEndpoint)
 			assert.Equal(t, expectedBase+"/.well-known/jwks.json", doc.JWKSURI)
-			assert.Equal(t, []string{"aud", "exp", "iat", "iss", "jti", "nbf", "sub"}, doc.ClaimsSupported)
+			assert.Equal(t, []string{"aud", "exp", "iat", "iss", "jti", "nbf", "sub", "example.com/identity"}, doc.ClaimsSupported)
 			assert.Equal(t, []string{"id_token"}, doc.ResponseTypesSupported)
 			assert.Equal(t, []string{"public"}, doc.SubjectTypesSupported)
 			assert.Equal(t, []string{algorithm}, doc.IDTokenSigningAlgValuesSupported)
@@ -365,60 +372,31 @@ func TestHandleGetOpenIDConfigurationWithoutSigningAlgorithm(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
-func TestNewServerRejectsSigningKeyWithoutAlgorithm(t *testing.T) {
-	signingKey, err := jwks.NewSigningKey("ES256", "")
-	require.NoError(t, err)
-	err = signingKey.Remove(jwk.AlgorithmKey)
-	require.NoError(t, err)
+func TestNewServer(t *testing.T) {
+	t.Run("rejects a missing signing key", func(t *testing.T) {
+		s, err := NewServer(NewServerOpts{})
+		require.EqualError(t, err, "signing key is required")
+		assert.Nil(t, s)
+	})
 
-	s, err := NewServer(NewServerOpts{SigningKey: signingKey})
-	require.EqualError(t, err, "signing key does not contain an algorithm")
-	assert.Nil(t, s)
-}
+	// The checks are tested in detail in the jwks package
+	t.Run("rejects an invalid signing key", func(t *testing.T) {
+		signingKey, err := jwks.NewSigningKey("ES256", "")
+		require.NoError(t, err)
+		err = signingKey.Set(jwk.AlgorithmKey, jwa.NoSignature())
+		require.NoError(t, err)
 
-func TestNewServerRejectsInvalidSigningKeys(t *testing.T) {
-	symmetricKey, err := jwk.Import[jwk.Key]([]byte("01234567890123456789012345678901"))
-	require.NoError(t, err)
-	err = symmetricKey.Set(jwk.AlgorithmKey, jwa.HS256())
-	require.NoError(t, err)
+		s, err := NewServer(NewServerOpts{SigningKey: signingKey})
+		require.ErrorContains(t, err, "invalid signing key: signing key algorithm 'none' is not supported")
+		assert.Nil(t, s)
+	})
 
-	publicSource, err := jwks.NewSigningKey("ES256", "")
-	require.NoError(t, err)
-	publicKey, err := publicSource.PublicKey()
-	require.NoError(t, err)
+	t.Run("rejects a missing tsnet server", func(t *testing.T) {
+		signingKey, err := jwks.NewSigningKey("ES256", "")
+		require.NoError(t, err)
 
-	encryptionKey, err := jwks.NewSigningKey("RS256", "")
-	require.NoError(t, err)
-	err = encryptionKey.Set(jwk.AlgorithmKey, jwa.RSA_OAEP())
-	require.NoError(t, err)
-
-	tests := []struct {
-		name          string
-		key           jwk.Key
-		expectedError string
-	}{
-		{
-			name:          "symmetric key",
-			key:           symmetricKey,
-			expectedError: "symmetric signing keys are not supported",
-		},
-		{
-			name:          "public key",
-			key:           publicKey,
-			expectedError: "signing key must be private",
-		},
-		{
-			name:          "non-signature algorithm",
-			key:           encryptionKey,
-			expectedError: "signing key algorithm is not a signature algorithm",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			s, err := NewServer(NewServerOpts{SigningKey: test.key})
-			require.EqualError(t, err, test.expectedError)
-			assert.Nil(t, s)
-		})
-	}
+		s, err := NewServer(NewServerOpts{SigningKey: signingKey})
+		require.EqualError(t, err, "tsnet server is required")
+		assert.Nil(t, s)
+	})
 }

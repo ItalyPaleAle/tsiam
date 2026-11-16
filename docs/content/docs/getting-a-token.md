@@ -31,7 +31,7 @@ When exchanging tokens with cloud providers, use these audience values:
 | Target service | Audience value |
 | --- | --- |
 | AWS IAM | `sts.amazonaws.com` (for OIDC federation with AWS IAM) |
-| Microsoft Entra ID (Azure AD) | `api://AzureADTokenExchange` (for Workload Identity Federation) |
+| Microsoft Entra ID (Azure AD) | `api://AzureADTokenExchange` (for Workload Identity Federation - requires [`signingKey.algorithm: RS256`](/docs/configuration#signingkey)) |
 | Google Cloud IAM | Your workload identity pool audience (e.g., `//iam.googleapis.com/projects/PROJECT_ID/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID`) |
 | Custom API | Use your API's identifier (e.g., `https://api.example.com`) |
 

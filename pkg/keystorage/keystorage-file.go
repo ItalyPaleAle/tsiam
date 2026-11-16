@@ -67,7 +67,7 @@ func (f *FileKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 	return key, nil
 }
 
-// Store saves the signing key to a file
+// Store saves the signing key to a file, if the file doesn't exist yet
 func (f *FileKeyStorage) Store(ctx context.Context, key jwk.Key) error {
 	data, err := json.Marshal(key)
 	if err != nil {
@@ -75,8 +75,10 @@ func (f *FileKeyStorage) Store(ctx context.Context, key jwk.Key) error {
 	}
 
 	// Atomic write so a torn write cannot leave an unparseable key file on disk
-	err = writeFileAtomic(f.path, data)
-	if err != nil {
+	err = writeFileExclusive(f.path, data)
+	if errors.Is(err, fs.ErrExist) {
+		return errKeyExists
+	} else if err != nil {
 		return fmt.Errorf("failed to write key file: %w", err)
 	}
 

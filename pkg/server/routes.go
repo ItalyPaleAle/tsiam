@@ -11,12 +11,17 @@ import (
 
 	"github.com/italypaleale/go-kit/httpserver"
 	"github.com/italypaleale/go-kit/tsnetserver"
+	"github.com/italypaleale/go-kit/utils"
 	"tailscale.com/tailcfg"
 
 	"github.com/italypaleale/tsiam/pkg/config"
 	"github.com/italypaleale/tsiam/pkg/jwks"
 	"github.com/italypaleale/tsiam/pkg/tsnet"
 )
+
+// Cache-Control header for the public endpoints (`/.well-known/*`)
+// Letting relying parties cache the responses for 5 minutes keeps them from hitting the rate limit
+const publicCacheControl = "public, max-age=300"
 
 // handleGetHealthz handles the requests to the healthcheck endpoint (`GET /healthz`)
 func (s *Server) handleGetHealthz(w http.ResponseWriter, r *http.Request) {
@@ -37,6 +42,10 @@ func (s *Server) handleGetRoot(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Get()
+
+	// Responses can contain a bearer token, which must not be cached (RFC 6749, section 5.1)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
 
 	// Get Tailscale connection info from tsnet
 	whois, err := s.whoIs(r)
@@ -154,6 +163,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetJWKS(w http.ResponseWriter, r *http.Request) {
 	// Return cached JWKS
 	w.Header().Set(httpserver.HeaderContentType, httpserver.ContentTypeJson)
+	w.Header().Set("Cache-Control", publicCacheControl)
 	_, err := w.Write(s.publicJwks)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "Failed to write JWKS", "error", err)
@@ -161,6 +171,8 @@ func (s *Server) handleGetJWKS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Request) {
+	cfg := config.Get()
+
 	signingAlgorithm, ok := s.signingKey.Algorithm()
 	if !ok {
 		slog.ErrorContext(r.Context(), "Signing key does not contain an algorithm")
@@ -183,11 +195,12 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 	endpoint := "https://" + s.hostname()
 
 	w.Header().Set(httpserver.HeaderContentType, httpserver.ContentTypeJson)
+	w.Header().Set("Cache-Control", publicCacheControl)
 	httpserver.RespondWithJSON(w, r, oidcConfiguration{
 		Issuer:                           s.tokenIssuer(),
 		TokenEndpoint:                    endpoint + "/token",
 		JWKSURI:                          endpoint + "/.well-known/jwks.json",
-		ClaimsSupported:                  []string{"aud", "exp", "iat", "iss", "jti", "nbf", "sub"},
+		ClaimsSupported:                  []string{"aud", "exp", "iat", "iss", "jti", "nbf", "sub", cfg.Tokens.ClaimName},
 		ResponseTypesSupported:           []string{"id_token"},
 		SubjectTypesSupported:            []string{"public"},
 		IDTokenSigningAlgValuesSupported: []string{signingAlgorithm.String()},
@@ -260,7 +273,8 @@ func extractAudience(r *http.Request) (string, error) {
 	}
 
 	// Reject control / non-printable bytes
-	if config.HasControlChars(res) {
+	// Audiences end up in JWT claims and in log lines, so a CR/LF or other control byte would let an attacker inject log lines or break consumers that don't quote the audience
+	if utils.HasControlChars(res) {
 		return "", errAudienceInvalidChars
 	}
 

@@ -326,6 +326,27 @@ func TestAzureKeyVaultKeyStorage_StorePinnedKeyVersion(t *testing.T) {
 	assert.Equal(t, pinnedVersion, env.KeyVersion)
 }
 
+func TestAzureKeyVaultKeyStorage_StoreExisting(t *testing.T) {
+	kv := newFakeKeyVault(t)
+	storage := newTestAKVStorage(t, kv, "")
+
+	firstKey, err := jwks.NewSigningKey("ES256", "")
+	require.NoError(t, err)
+	err = storage.Store(t.Context(), firstKey)
+	require.NoError(t, err)
+
+	// Another instance stored its key first, so this one isn't saved
+	secondKey, err := jwks.NewSigningKey("ES256", "")
+	require.NoError(t, err)
+	err = storage.Store(t.Context(), secondKey)
+	require.Error(t, err)
+	assert.True(t, IsKeyExistError(err))
+
+	loadedKey, err := storage.Load(t.Context())
+	require.NoError(t, err)
+	requireSameKey(t, firstKey, loadedKey)
+}
+
 func TestAzureKeyVaultKeyStorage_LoadLegacy(t *testing.T) {
 	// Files written by tsiam v0.5.0 and earlier contain the JWK wrapped directly with the Key Vault key, which only fits for EdDSA keys with an RSA-2048 wrapping key
 	t.Run("rewrites file pinned to the latest version", func(t *testing.T) {

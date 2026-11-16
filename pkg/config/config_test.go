@@ -105,18 +105,6 @@ func TestValidateAllowedAudiences(t *testing.T) {
 	}
 }
 
-func TestHasControlChars(t *testing.T) {
-	assert.False(t, HasControlChars(""))
-	assert.False(t, HasControlChars("https://api.example.com"))
-	assert.False(t, HasControlChars("api://AzureADTokenExchange"))
-	assert.False(t, HasControlChars("https://café.example.com/ñ"))
-	assert.True(t, HasControlChars("a\x00b"))
-	assert.True(t, HasControlChars("a\rb"))
-	assert.True(t, HasControlChars("a\nb"))
-	assert.True(t, HasControlChars("\x1f"))
-	assert.True(t, HasControlChars("\x7f"))
-}
-
 func TestValidateAzureKeyVaultKeysKeyVersion(t *testing.T) {
 	newConfig := func(keyVersion string) *Config {
 		c := newValidConfig()
