@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -100,24 +101,42 @@ func rateLimitKey(r *http.Request) string {
 
 // Rejects any request that carries a body (Content-Length > 0, or chunked encoding with any bytes available)
 // Applied to /token which only consumes query parameters; reading 1 byte catches clients that omit Content-Length (chunked transfer-encoding) and stream a body anyway
+// Requests whose body can't be read, such as a malformed chunked body, are rejected too
 func requireEmptyBody(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.ContentLength > 0 {
-			w.Header().Set("Connection", "close")
-			http.Error(w, "this endpoint does not accept a request body", http.StatusRequestEntityTooLarge)
+			rejectRequestBody(w, http.StatusRequestEntityTooLarge, "this endpoint does not accept a request body")
 			return
 		}
+
+		// The server always sets a body on incoming requests, but requests created in code can have none
+		if r.Body == nil {
+			next(w, r)
+			return
+		}
+
 		// Probe the body for anything chunked/transfer-encoded that bypassed the Content-Length check
 		// We only need to know "is there *any* byte"; the MaxBytesReader middleware caps the actual read at maxBodySize so a malicious chunked stream cannot make this read consume unbounded memory
+		// io.ReadFull keeps reading until it gets the byte or an error, since a single Read can return neither
 		buf := make([]byte, 1)
-		n, _ := r.Body.Read(buf)
-		if n > 0 {
-			w.Header().Set("Connection", "close")
-			http.Error(w, "this endpoint does not accept a request body", http.StatusRequestEntityTooLarge)
-			return
+		_, err := io.ReadFull(r.Body, buf)
+		var maxBytesErr *http.MaxBytesError
+		switch {
+		case errors.Is(err, io.EOF):
+			// The body is empty
+			next(w, r)
+		case err == nil, errors.As(err, &maxBytesErr):
+			rejectRequestBody(w, http.StatusRequestEntityTooLarge, "this endpoint does not accept a request body")
+		default:
+			rejectRequestBody(w, http.StatusBadRequest, "failed to read the request body")
 		}
-		next(w, r)
 	}
+}
+
+// Responds with an error and closes the connection, so the server doesn't read the rest of the body
+func rejectRequestBody(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Connection", "close")
+	http.Error(w, msg, status)
 }
 
 // Returns a middleware that responds with 404 to every Funnel request except GET or HEAD requests for the public endpoints
@@ -236,13 +255,15 @@ var browserHeaders = []string{
 func validateNoBrowser(r *http.Request) error {
 	// First, require the presence of the X-Tsiam header
 	// While users are encouraged to set the value to 1, we accept anything that's non-empty
-	if r.Header.Get(tsiamHeaderName) == "" {
+	if strings.TrimSpace(r.Header.Get(tsiamHeaderName)) == "" {
 		return errors.New("missing header X-Tsiam")
 	}
 
 	// These headers are set by browsers and are a very reliable indication that there's a web browser making the request
+	// Header.Get returns only the first value, so a request could hide a header behind an empty one; instead, any occurrence of the header is rejected, even with an empty value
 	for _, h := range browserHeaders {
-		if r.Header.Get(h) != "" {
+		_, ok := r.Header[h]
+		if ok {
 			return fmt.Errorf("found browser header '%s'", h)
 		}
 	}

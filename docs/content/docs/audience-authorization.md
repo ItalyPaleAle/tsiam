@@ -68,6 +68,8 @@ In this example:
 - Nodes tagged `tag:backend` can request tokens for both `https://api.example.com` and `sts.amazonaws.com`
 - The tsiam service node must be tagged `tag:tsiam`
 
+Each value in the `italypaleale.me/tsiam` list must be a JSON object with only the `allowedAudiences` and `subject` fields. tsiam skips values that aren't (and logs a warning that includes the node ID).
+
 ## Shared workload identity via `subject`
 
 If multiple nodes should share a single workload identity (for example, a fleet of identical worker machines), add a `subject` field to their capability grants and set `tokens.subjectClaim: capability` in your config:
@@ -97,6 +99,12 @@ tokens:
 ```
 
 All nodes tagged `tag:worker` will receive tokens with `"sub": "worker-fleet"`, regardless of their individual node IDs. This lets you bind a single IAM role or trust policy to the entire fleet.
+
+A node can match more than one grant for the same audience, for example a broad grant for all nodes and a role grant with a `subject`. tsiam looks at all the grants that allow the audience:
+
+- If none of them has a `subject`, `sub` is the node ID.
+- If they have the same `subject`, or only one of them has a `subject`, `sub` is that subject.
+- If they have different subjects, the request fails with `403 subject_conflict`, because picking one would depend on the order of the grants. Change the grants so that each node gets one subject for each audience.
 
 ## Nodes without capabilities
 

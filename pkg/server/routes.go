@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,6 +24,11 @@ import (
 // Cache-Control header for the public endpoints (`/.well-known/*`)
 // Letting relying parties cache the responses for 5 minutes keeps them from hitting the rate limit
 const publicCacheControl = "public, max-age=300"
+
+// Value of authorization_endpoint in the OpenID Connect discovery document
+// tsiam has no authorization endpoint, since nodes get tokens from /token, but OpenID Connect Discovery requires the field, and some clients fail without it
+// A URN can't be mistaken for an endpoint to call (prior art: what Amazon EKS uses)
+const authorizationEndpoint = "urn:tsiam:programmatic_authorization"
 
 // handleGetHealthz handles the requests to the healthcheck endpoint (`GET /healthz`)
 func (s *Server) handleGetHealthz(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +134,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check per-caller authorization via Tailscale capabilities
-	matchedCap, permitted := tsnet.MatchAudienceCapability(r.Context(), &whois, audience, cfg.Tokens.AllowEmptyNodeCapability)
+	subjects, permitted := tsnet.MatchAudienceCapability(r.Context(), &whois, audience, cfg.Tokens.AllowEmptyNodeCapability)
 	if !permitted {
 		slog.WarnContext(r.Context(), "Caller not permitted to request this audience",
 			slog.String("nodeId", whois.NodeID),
@@ -136,6 +142,18 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 			slog.String("requestedAudience", audience),
 		)
 		errAudienceNotPermitted.WriteResponse(w, r)
+		return
+	}
+
+	subject, err := resolveSubject(cfg, whois, subjects)
+	if err != nil {
+		slog.WarnContext(r.Context(), "Capability grants that authorize the audience set different subjects",
+			slog.String("nodeId", whois.NodeID),
+			slog.String("nodeName", whois.Name),
+			slog.String("requestedAudience", audience),
+			slog.Any("subjects", subjects),
+		)
+		errSubjectConflict.WriteResponse(w, r)
 		return
 	}
 
@@ -150,7 +168,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		Issuer:    s.tokenIssuer(),
 		Audience:  audience,
 		Lifetime:  lifetime,
-		Subject:   resolveSubject(cfg, whois, matchedCap),
+		Subject:   subject,
 		Whois:     identityClaimWhois(whois, cfg.Tokens.IncludeCapabilities),
 		ClaimName: cfg.Tokens.ClaimName,
 	})
@@ -213,10 +231,12 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// There's no token_endpoint
+	// /token isn't an OAuth 2.0 token endpoint, it's not reachable over Funnel, and OpenID Connect Discovery doesn't require it when the only response type is "id_token"
 	//nolint:tagliatelle
 	type oidcConfiguration struct {
 		Issuer                           string   `json:"issuer"`
-		TokenEndpoint                    string   `json:"token_endpoint"`
+		AuthorizationEndpoint            string   `json:"authorization_endpoint"`
 		JWKSURI                          string   `json:"jwks_uri"`
 		ClaimsSupported                  []string `json:"claims_supported"`
 		ResponseTypesSupported           []string `json:"response_types_supported"`
@@ -231,7 +251,7 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 	w.Header().Set("Cache-Control", publicCacheControl)
 	httpserver.RespondWithJSON(w, r, oidcConfiguration{
 		Issuer:                           s.tokenIssuer(),
-		TokenEndpoint:                    endpoint + "/token",
+		AuthorizationEndpoint:            authorizationEndpoint,
 		JWKSURI:                          endpoint + "/.well-known/jwks.json",
 		ClaimsSupported:                  []string{"aud", "exp", "iat", "iss", "jti", "nbf", "sub", cfg.Tokens.ClaimName},
 		ResponseTypesSupported:           []string{"id_token"},
@@ -254,11 +274,15 @@ func sanitizeWhois(whois tsnetserver.TailscaleWhoIs) tsnetserver.TailscaleWhoIs 
 // Tokens are signed but not encrypted, so everything in the payload is readable by every relying party and by anyone the token is shown to
 // tsiam's own capability grants are kept only when the operator opts in with `tokens.includeCapabilities`
 func identityClaimWhois(whois tsnetserver.TailscaleWhoIs, includeCapabilities bool) tsnetserver.TailscaleWhoIs {
+	// The host name is the MagicDNS name without the tailnet suffix, which the control plane sets
+	// whois.Hostname isn't used, since it adds the hostname that the node reports when it's different, as in "alice (alice-laptop)"
+	hostname, _, _ := strings.Cut(whois.Name, ".")
+
 	// Copy the object
 	res := tsnetserver.TailscaleWhoIs{
 		NodeID:        whois.NodeID,
 		Name:          whois.Name,
-		Hostname:      whois.Hostname,
+		Hostname:      hostname,
 		IP4:           whois.IP4,
 		IP6:           whois.IP6,
 		UserLoginName: whois.UserLoginName,
@@ -277,25 +301,44 @@ func identityClaimWhois(whois tsnetserver.TailscaleWhoIs, includeCapabilities bo
 }
 
 // Returns the value to use for the JWT `sub` claim, based on the configured subject-claim source
-// Defaults to the stable Tailscale node identifier when the configured value is unrecognized, when the configured value is "capability" but the matched grant has no `subject`, or when the caller has no capability at all (only reachable when `allowEmptyNodeCapability` is true)
-func resolveSubject(cfg *config.Config, whois tsnetserver.TailscaleWhoIs, matchedCap tsnet.TsiamCapability) string {
+// subjects are the distinct subjects set by the grants that authorize the audience, as returned by tsnet.MatchAudienceCapability
+// Defaults to the stable Tailscale node identifier when the configured value is unrecognized, when the configured value is "capability" but no matching grant has a `subject`, or when the caller has no capability at all (only reachable when `allowEmptyNodeCapability` is true)
+// With "capability", returns errSubjectConflict when the grants set different subjects, since picking one would depend on the order of the grants
+func resolveSubject(cfg *config.Config, whois tsnetserver.TailscaleWhoIs, subjects []string) (string, error) {
 	switch cfg.Tokens.SubjectClaim {
 	case config.SubjectClaimName:
-		return whois.Name
+		return whois.Name, nil
 	case config.SubjectClaimCapability:
-		if matchedCap.Subject != "" {
-			return matchedCap.Subject
+		switch len(subjects) {
+		case 0:
+			// Fall back to the node ID
+		case 1:
+			return subjects[0], nil
+		default:
+			return "", errSubjectConflict
 		}
 	}
-	return whois.NodeID
+
+	return whois.NodeID, nil
 }
 
 // extractAudience extracts and validates the audience parameter from the request
 // All errors returned are httpserver.ApiError values, which callers can write to the response
 func extractAudience(r *http.Request) (string, error) {
+	// Parse the query string here instead of using r.URL.Query(), which ignores errors and leaves out the parameters it can't parse
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return "", errInvalidQuery
+	}
+
+	// Each parameter can be set only once, so the audience doesn't depend on which value is read
+	if len(query["resource"]) > 1 || len(query["audience"]) > 1 {
+		return "", errAudienceDuplicate
+	}
+
 	// Get both resource and audience parameters
-	resource := strings.TrimSpace(r.URL.Query().Get("resource"))
-	audience := strings.TrimSpace(r.URL.Query().Get("audience"))
+	resource := strings.TrimSpace(query.Get("resource"))
+	audience := strings.TrimSpace(query.Get("audience"))
 
 	var res string
 	switch {

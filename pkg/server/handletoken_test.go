@@ -316,6 +316,19 @@ func TestHandlePostToken_Success(t *testing.T) {
 	auds, ok := parsed.Audience()
 	require.True(t, ok)
 	assert.Equal(t, []string{testAudience}, auds)
+
+	// The identity claim contains only the fields with a value
+	// jwx encodes claims with encoding/json/v2, which includes false bools that have only omitempty
+	identity, err := jwt.Get[map[string]any](parsed, "italypaleale.me/tsiam")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{
+		"nodeId":        testWhoisNode,
+		"name":          testWhoisName,
+		"hostname":      "alice",
+		"ip4":           "100.64.0.1",
+		"ip6":           "fd7a:115c:a1e0::1",
+		"userLoginName": testWhoisLogin,
+	}, identity)
 }
 
 func TestHandlePostToken_SubjectClaimSources(t *testing.T) {
@@ -346,6 +359,31 @@ func TestHandlePostToken_SubjectClaimSources(t *testing.T) {
 				tailcfg.RawMessage(`{"allowedAudiences":["` + testAudience + `"],"subject":"workload-group-a"}`),
 			},
 			expectSub: "workload-group-a",
+		},
+		{
+			name:      "capability uses the subject of the grant that sets one",
+			configure: func(c *config.Config) { c.Tokens.SubjectClaim = config.SubjectClaimCapability },
+			capOverride: []tailcfg.RawMessage{
+				tailcfg.RawMessage(`{"allowedAudiences":["` + testAudience + `"]}`),
+				tailcfg.RawMessage(`{"allowedAudiences":["` + testAudience + `"],"subject":"worker-fleet"}`),
+			},
+			expectSub: "worker-fleet",
+		},
+		{
+			name:      "capability falls back to nodeId when the subject is only whitespace",
+			configure: func(c *config.Config) { c.Tokens.SubjectClaim = config.SubjectClaimCapability },
+			capOverride: []tailcfg.RawMessage{
+				tailcfg.RawMessage(`{"allowedAudiences":["` + testAudience + `"],"subject":"   "}`),
+			},
+			expectSub: testWhoisNode,
+		},
+		{
+			name: "different subjects don't matter when the subject isn't from the capability",
+			capOverride: []tailcfg.RawMessage{
+				tailcfg.RawMessage(`{"allowedAudiences":["` + testAudience + `"],"subject":"group-a"}`),
+				tailcfg.RawMessage(`{"allowedAudiences":["` + testAudience + `"],"subject":"group-b"}`),
+			},
+			expectSub: testWhoisNode,
 		},
 	}
 
@@ -380,6 +418,25 @@ func TestHandlePostToken_SubjectClaimSources(t *testing.T) {
 			assert.Equal(t, tt.expectSub, sub)
 		})
 	}
+}
+
+func TestHandlePostToken_SubjectConflict(t *testing.T) {
+	s, restore := newTestServer(t, func(c *config.Config) {
+		c.Tokens.SubjectClaim = config.SubjectClaimCapability
+	}, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+		whois := defaultWhois()
+		whois.CapMap[tsnet.AudienceCapability] = []tailcfg.RawMessage{
+			tailcfg.RawMessage(`{"allowedAudiences":["` + testAudience + `"],"subject":"group-a"}`),
+			tailcfg.RawMessage(`{"allowedAudiences":["` + testAudience + `"]}`),
+			tailcfg.RawMessage(`{"allowedAudiences":["` + testAudience + `"],"subject":"group-b"}`),
+		}
+		return whois, nil
+	})
+	defer restore()
+
+	rr := postToken(t, s, "?resource="+testAudience)
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+	assert.Contains(t, rr.Body.String(), "subject_conflict")
 }
 
 func TestHandlePostToken_TaggedNodeBlanksUserLoginInClaim(t *testing.T) {
@@ -466,12 +523,20 @@ func TestIdentityClaimWhois(t *testing.T) {
 		assert.Equal(t, tsnetserver.TailscaleWhoIs{
 			NodeID:        whois.NodeID,
 			Name:          whois.Name,
-			Hostname:      whois.Hostname,
+			Hostname:      "alice",
 			IP4:           whois.IP4,
 			IP6:           whois.IP6,
 			UserLoginName: whois.UserLoginName,
 			Tags:          whois.Tags,
 		}, res)
+	})
+
+	t.Run("Host name is the MagicDNS name without the tailnet suffix", func(t *testing.T) {
+		// whois.Hostname includes the hostname that the node reports, when it's different from the MagicDNS name
+		whois := newWhois()
+		whois.Hostname = "alice (evil-hostname)"
+		res := identityClaimWhois(whois, false)
+		assert.Equal(t, "alice", res.Hostname)
 	})
 
 	t.Run("Input whois is not modified", func(t *testing.T) {
@@ -569,6 +634,36 @@ func TestHandlePostToken_CustomClaimName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, testWhoisNode, claim["nodeId"])
 	assert.False(t, parsed.Has("italypaleale.me/tsiam"))
+}
+
+func TestHandlePostToken_InvalidQuery(t *testing.T) {
+	cases := map[string]struct {
+		query string
+		code  string
+	}{
+		"semicolon":                {query: "?resource=" + testAudience + ";audience=https://other.example.com", code: "invalid_query"},
+		"invalid escape":           {query: "?resource=" + testAudience + "&audience=%zz", code: "invalid_query"},
+		"duplicate resource":       {query: "?resource=" + testAudience + "&resource=https://other.example.com", code: "audience_duplicate"},
+		"duplicate audience":       {query: "?audience=" + testAudience + "&audience=" + testAudience, code: "audience_duplicate"},
+		"C1 control character":     {query: "?resource=" + testAudience + "%C2%9B", code: "audience_invalid_chars"},
+		"BiDi override":            {query: "?resource=" + testAudience + "%E2%80%AE", code: "audience_invalid_chars"},
+		"invalid UTF-8":            {query: "?resource=" + testAudience + "%9B", code: "audience_invalid_chars"},
+		"line separator":           {query: "?resource=https://api%E2%80%A8.example.com", code: "audience_invalid_chars"},
+		"zero-width space":         {query: "?resource=" + testAudience + "%E2%80%8B", code: "audience_invalid_chars"},
+		"conflicting with escapes": {query: "?resource=" + testAudience + "&audience=https%3A%2F%2Fother.example.com", code: "audience_conflict"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			s, restore := newTestServer(t, nil, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+				return defaultWhois(), nil
+			})
+			defer restore()
+
+			rr := postToken(t, s, tc.query)
+			assert.Equal(t, http.StatusBadRequest, rr.Code)
+			assert.Contains(t, rr.Body.String(), tc.code)
+		})
+	}
 }
 
 func TestHandlePostToken_ResourceAndAudienceAliases(t *testing.T) {

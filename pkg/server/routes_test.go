@@ -225,7 +225,7 @@ const discoveryTestHostname = "tsiam.test-tailnet.ts.net"
 //nolint:tagliatelle
 type oidcConfigurationDocument struct {
 	Issuer                           string   `json:"issuer"`
-	TokenEndpoint                    string   `json:"token_endpoint"`
+	AuthorizationEndpoint            string   `json:"authorization_endpoint"`
 	JWKSURI                          string   `json:"jwks_uri"`
 	ClaimsSupported                  []string `json:"claims_supported"`
 	ResponseTypesSupported           []string `json:"response_types_supported"`
@@ -298,9 +298,15 @@ func TestHandleGetOpenIDConfiguration(t *testing.T) {
 			err := json.Unmarshal(rr.Body.Bytes(), &doc)
 			require.NoError(t, err)
 
+			// token_endpoint isn't published, since /token isn't an OAuth 2.0 token endpoint
+			var fields map[string]any
+			err = json.Unmarshal(rr.Body.Bytes(), &fields)
+			require.NoError(t, err)
+			assert.NotContains(t, fields, "token_endpoint")
+
 			expectedBase := "https://" + discoveryTestHostname
 			assert.Equal(t, expectedBase, doc.Issuer)
-			assert.Equal(t, expectedBase+"/token", doc.TokenEndpoint)
+			assert.Equal(t, "urn:tsiam:programmatic_authorization", doc.AuthorizationEndpoint)
 			assert.Equal(t, expectedBase+"/.well-known/jwks.json", doc.JWKSURI)
 			assert.Equal(t, []string{"aud", "exp", "iat", "iss", "jti", "nbf", "sub", "example.com/identity"}, doc.ClaimsSupported)
 			assert.Equal(t, []string{"id_token"}, doc.ResponseTypesSupported)

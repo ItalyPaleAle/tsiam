@@ -114,7 +114,7 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 | --- | --- |
 | `"nodeId"` (default) | Stable Tailscale node identifier — recommended |
 | `"name"` | MagicDNS node name — **⚠ can be reused** if the device is removed and re-created |
-| `"capability"` | The `subject` field from the matching Tailscale ACL grant, allowing multiple nodes to share one workload identity |
+| `"capability"` | The `subject` field from the matching Tailscale ACL grants, allowing multiple nodes to share one workload identity. Grants that set different subjects make the request fail — see [Shared workload identity](/docs/audience-authorization#shared-workload-identity-via-subject) |
 
 ### `signingKey`
 

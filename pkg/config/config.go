@@ -95,7 +95,7 @@ type ConfigTokens struct {
 	// Allowed values:
 	//   - "nodeId" (default, recommended): the unique, stable Tailscale node identifier
 	//   - "name": the Tailscale node name, which is the MagicDNS name without trailing dot - See WARNING below
-	//   - "capability": the `subject` field of the Tailscale ACL grant that authorized the requested audience. Lets multiple nodes share a workload identity by setting the same `subject` in their grant. Falls back to the stable node ID when the matching grant has no `subject` set, or when the caller has no capability and `allowEmptyNodeCapability` is true.
+	//   - "capability": the `subject` field of the Tailscale ACL grants that authorize the requested audience. Lets multiple nodes share a workload identity by setting the same `subject` in their grant. Falls back to the stable node ID when none of the matching grants has a `subject` set, or when the caller has no capability and `allowEmptyNodeCapability` is true
 	//
 	// WARNING for `"name"`: node names CAN be reused once a device is removed from the tailnet, which means a relying-party trust policy keyed on a node name can be silently re-targeted by whoever creates the next device with that name.
 	// Only choose `"name"` if you have relying parties that cannot be reconfigured to consume the stable node ID, and treat the node name as a soft identifier (e.g. require additional checks on the `nodeId` field of the identity claim).

@@ -12,7 +12,7 @@ POST https://tsiam/token?resource=<audience>
 X-Tsiam: 1
 ```
 
-The `X-Tsiam: 1` header is required and helps preventing cross-site request forgery by ensuring requests are made intentionally.
+The `X-Tsiam: 1` header is required and helps preventing cross-site request forgery by ensuring requests are made intentionally. Requests must not include the `Origin` and `Sec-Fetch-*` headers that web browsers send and must not have a body.
 
 The `/token` endpoint is only reachable from within your Tailnet. It is never exposed via Tailscale Funnel.
 
@@ -25,6 +25,8 @@ Additionally, tokens never outlive the key of the node that requested them: if t
 | Parameter | Required | Description |
 | --- | --- | --- |
 | `resource` | Yes | The audience for the token (alias: `audience`), which specifies the intended recipient of the token. Must be in the [allowed audiences list](/docs/audience-authorization). |
+
+Each parameter can be set only once. If you set both `resource` and `audience`, they must have the same value. Parameters must be query-string encoded.
 
 ### Common audience values
 
@@ -82,8 +84,8 @@ The JWT token contains the requested audience in the `aud` claim, and your Tails
     "hostname": "my-server",
     "ip4": "100.64.0.1",
     "ip6": "fd7a:115c:a1e0::1",
-    "userLoginName": "user@example.com",
-    "tags": []
+    "userLoginName": "user@example.com"
+    // Tagged nodes have "tags" (for example, "tags": [ "tag:ci" ]) and no "userLoginName"
   },
 
   // Unique token identifier: cryptographically random 24-byte value encoded as base64url
@@ -92,7 +94,11 @@ The JWT token contains the requested audience in the `aud` claim, and your Tails
 }
 ```
 
-By default the `sub` claim is the stable Tailscale node identifier. Set [`tokens.subjectClaim`](./configuration.md#tokenssubjectclaim-values) to `"name"` to use the (recyclable) node name instead (note the security warning in the config docs) or to `"capability"` to pull the subject from the `subject` field of the matching Tailscale ACL grant, letting multiple nodes share one workload identity.
+The `name` field is the node's MagicDNS name, and `hostname` is the same name without the tailnet suffix. By default, Tailscale derives the MagicDNS name from the device's OS hostname, so the device can change it, and a name can be reused after a device is removed.
+
+Always apply trust policies to `nodeId` or `tags`, instead of `name` or `hostname` which users can change.
+
+By default the `sub` claim is the stable Tailscale node identifier. Set [`tokens.subjectClaim`](./configuration.md#tokenssubjectclaim-values) to `"name"` to use the (recyclable) node name instead (note the security warning in the config docs) or to `"capability"` to pull the subject from the `subject` field of the matching Tailscale ACL grants, letting multiple nodes share one workload identity (see [Shared workload identity](/docs/audience-authorization#shared-workload-identity-via-subject)).
 
 The identity claim does not include the caller's Tailscale peer capabilities by default. Set [`tokens.includeCapabilities`](/docs/configuration#tokens) to `true` to add the caller's tsiam grants under a `capMap` field, keyed by the `italypaleale.me/tsiam` capability. Tokens are signed but not encrypted, so every relying party can read those grants (including their `allowedAudiences` and `subject` values).
 

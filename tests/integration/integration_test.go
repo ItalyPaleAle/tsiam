@@ -249,6 +249,7 @@ func TestOIDCEndpoints(t *testing.T) {
 		//nolint:tagliatelle
 		var oidcConfig struct {
 			Issuer                           string   `json:"issuer"`
+			AuthorizationEndpoint            string   `json:"authorization_endpoint"`
 			TokenEndpoint                    string   `json:"token_endpoint"`
 			JWKSURI                          string   `json:"jwks_uri"`
 			ClaimsSupported                  []string `json:"claims_supported"`
@@ -260,11 +261,11 @@ func TestOIDCEndpoints(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.NotEmpty(t, oidcConfig.Issuer, "issuer should not be empty")
-		assert.NotEmpty(t, oidcConfig.TokenEndpoint, "token_endpoint should not be empty")
+		assert.Equal(t, "urn:tsiam:programmatic_authorization", oidcConfig.AuthorizationEndpoint)
+		assert.Empty(t, oidcConfig.TokenEndpoint, "token_endpoint should not be published")
 		assert.NotEmpty(t, oidcConfig.JWKSURI, "jwks_uri should not be empty")
-		assert.Contains(t, oidcConfig.TokenEndpoint, "/token")
 		assert.Contains(t, oidcConfig.JWKSURI, "/.well-known/jwks.json")
-		assert.Equal(t, []string{"aud", "exp", "iat", "iss", "jti", "nbf", "sub"}, oidcConfig.ClaimsSupported)
+		assert.Equal(t, []string{"aud", "exp", "iat", "iss", "jti", "nbf", "sub", "italypaleale.me/tsiam"}, oidcConfig.ClaimsSupported)
 		assert.Equal(t, []string{"id_token"}, oidcConfig.ResponseTypesSupported)
 		assert.Equal(t, []string{"public"}, oidcConfig.SubjectTypesSupported)
 		assert.Equal(t, []string{"ES256"}, oidcConfig.IDTokenSigningAlgValuesSupported)

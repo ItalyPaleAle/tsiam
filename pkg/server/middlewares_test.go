@@ -1,13 +1,18 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
+	"errors"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"strconv"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/italypaleale/go-kit/tsnetserver"
 	"github.com/stretchr/testify/assert"
@@ -504,6 +509,88 @@ func TestRequireEmptyBody(t *testing.T) {
 		assert.True(t, called, "empty chunked body should be allowed")
 		assert.Equal(t, http.StatusNoContent, rr.Code)
 	})
+
+	t.Run("Nil body passes through", func(t *testing.T) {
+		called = false
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", nil)
+		req.Body = nil
+		rr := httptest.NewRecorder()
+		handler(rr, req)
+		assert.True(t, called)
+		assert.Equal(t, http.StatusNoContent, rr.Code)
+	})
+
+	t.Run("Body that fails to read is rejected", func(t *testing.T) {
+		called = false
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", iotest.ErrReader(errors.New("malformed chunked encoding")))
+		req.ContentLength = -1
+		rr := httptest.NewRecorder()
+		handler(rr, req)
+		assert.False(t, called, "handler must not run when the body can't be read")
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Equal(t, "close", rr.Header().Get("Connection"))
+	})
+
+	t.Run("Body that returns no data on the first read is still probed", func(t *testing.T) {
+		called = false
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", &emptyFirstReader{data: []byte("x")})
+		req.ContentLength = -1
+		rr := httptest.NewRecorder()
+		handler(rr, req)
+		assert.False(t, called, "handler must not run when the body has data")
+		assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code)
+	})
+
+	t.Run("Body over the size limit is rejected", func(t *testing.T) {
+		called = false
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", bytes.NewReader([]byte("chunked-data")))
+		req.ContentLength = -1
+		rr := httptest.NewRecorder()
+		req.Body = http.MaxBytesReader(rr, req.Body, 0)
+		handler(rr, req)
+		assert.False(t, called, "handler must not run when the body is over the limit")
+		assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code)
+	})
+
+	t.Run("Malformed chunked body from a real connection is rejected", func(t *testing.T) {
+		srv := httptest.NewServer(requireEmptyBody(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		defer srv.Close()
+
+		var dialer net.Dialer
+		conn, err := dialer.DialContext(t.Context(), "tcp", srv.Listener.Addr().String())
+		require.NoError(t, err)
+		defer func() { _ = conn.Close() }()
+
+		// "zz" isn't a valid chunk size
+		_, err = conn.Write([]byte("POST /token HTTP/1.1\r\nHost: tsiam\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n"))
+		require.NoError(t, err)
+
+		res, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		require.NoError(t, err)
+		defer func() { _ = res.Body.Close() }()
+		assert.Equal(t, http.StatusBadRequest, res.StatusCode)
+	})
+}
+
+// Reader that returns no data and no error on the first read, which io.Reader allows
+type emptyFirstReader struct {
+	data []byte
+	read bool
+}
+
+func (r *emptyFirstReader) Read(p []byte) (int, error) {
+	if !r.read {
+		r.read = true
+		return 0, nil
+	}
+	if len(r.data) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	return n, nil
 }
 
 func TestRejectOversizedRequest(t *testing.T) {
@@ -834,6 +921,32 @@ func TestValidateNoBrowser(t *testing.T) {
 			},
 			expectError: false,
 		},
+		{
+			name: "Whitespace-only X-Tsiam header",
+			headers: map[string]string{
+				"X-Tsiam": "  ",
+			},
+			expectError: true,
+			errorMsg:    "missing header X-Tsiam",
+		},
+		{
+			name: "Empty Origin header present",
+			headers: map[string]string{
+				"X-Tsiam": "1",
+				"Origin":  "",
+			},
+			expectError: true,
+			errorMsg:    "found browser header 'Origin'",
+		},
+		{
+			name: "Empty Sec-Fetch-Site header present",
+			headers: map[string]string{
+				"X-Tsiam":        "1",
+				"Sec-Fetch-Site": "",
+			},
+			expectError: true,
+			errorMsg:    "found browser header 'Sec-Fetch-Site'",
+		},
 	}
 
 	for _, tt := range tests {
@@ -858,6 +971,19 @@ func TestValidateNoBrowser(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+
+	// Header.Get only returns the first value, so a browser header after an empty one must still be found
+	for _, h := range browserHeaders {
+		t.Run("Second "+h+" header after an empty one", func(t *testing.T) {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
+			req.Header.Set("X-Tsiam", "1")
+			req.Header.Add(h, "")
+			req.Header.Add(h, "same-origin")
+
+			err := validateNoBrowser(req)
+			require.ErrorContains(t, err, "found browser header '"+h+"'")
 		})
 	}
 }

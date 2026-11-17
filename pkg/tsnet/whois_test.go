@@ -8,6 +8,7 @@ import (
 
 	"github.com/italypaleale/go-kit/tsnetserver"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"tailscale.com/tailcfg"
 )
 
@@ -184,60 +185,127 @@ func TestIsAudiencePermittedForCaller(t *testing.T) {
 func TestMatchAudienceCapability(t *testing.T) {
 	const audience = "https://api.example.com"
 
+	grants := func(values ...string) tailcfg.PeerCapMap {
+		msgs := make([]tailcfg.RawMessage, len(values))
+		for i, v := range values {
+			msgs[i] = tailcfg.RawMessage(v)
+		}
+		return tailcfg.PeerCapMap{AudienceCapability: msgs}
+	}
+
 	tests := []struct {
 		name                   string
 		capMap                 tailcfg.PeerCapMap
 		allowWithoutCapability bool
 		expectMatched          bool
-		expectSubject          string
+		expectSubjects         []string
 	}{
 		{
-			name: "Matching grant with subject populates subject",
-			capMap: tailcfg.PeerCapMap{
-				AudienceCapability: []tailcfg.RawMessage{
-					tailcfg.RawMessage(`{"allowedAudiences":["https://api.example.com"],"subject":"workload-group-a"}`),
-				},
-			},
-			expectMatched: true,
-			expectSubject: "workload-group-a",
+			name:           "Matching grant with subject populates subject",
+			capMap:         grants(`{"allowedAudiences":["https://api.example.com"],"subject":"workload-group-a"}`),
+			expectMatched:  true,
+			expectSubjects: []string{"workload-group-a"},
 		},
 		{
-			name: "Matching grant without subject returns empty subject",
-			capMap: tailcfg.PeerCapMap{
-				AudienceCapability: []tailcfg.RawMessage{
-					tailcfg.RawMessage(`{"allowedAudiences":["https://api.example.com"]}`),
-				},
-			},
-			expectMatched: true,
-			expectSubject: "",
+			name:           "Matching grant without subject returns no subjects",
+			capMap:         grants(`{"allowedAudiences":["https://api.example.com"]}`),
+			expectMatched:  true,
+			expectSubjects: nil,
 		},
 		{
-			name: "Only the matching grant's subject is returned, not earlier non-matching grants",
-			capMap: tailcfg.PeerCapMap{
-				AudienceCapability: []tailcfg.RawMessage{
-					tailcfg.RawMessage(`{"allowedAudiences":["https://other.example.com"],"subject":"other-group"}`),
-					tailcfg.RawMessage(`{"allowedAudiences":["https://api.example.com"],"subject":"target-group"}`),
-				},
-			},
-			expectMatched: true,
-			expectSubject: "target-group",
+			name: "Only matching grants add their subject, not earlier non-matching grants",
+			capMap: grants(
+				`{"allowedAudiences":["https://other.example.com"],"subject":"other-group"}`,
+				`{"allowedAudiences":["https://api.example.com"],"subject":"target-group"}`,
+			),
+			expectMatched:  true,
+			expectSubjects: []string{"target-group"},
 		},
 		{
-			name: "Non-matching grants return zero capability",
-			capMap: tailcfg.PeerCapMap{
-				AudienceCapability: []tailcfg.RawMessage{
-					tailcfg.RawMessage(`{"allowedAudiences":["https://other.example.com"],"subject":"other-group"}`),
-				},
-			},
-			expectMatched: false,
-			expectSubject: "",
+			name: "Grant with subject wins over grant without, in either order",
+			capMap: grants(
+				`{"allowedAudiences":["https://api.example.com"]}`,
+				`{"allowedAudiences":["https://api.example.com"],"subject":"worker-fleet"}`,
+				`{"allowedAudiences":["https://api.example.com"]}`,
+			),
+			expectMatched:  true,
+			expectSubjects: []string{"worker-fleet"},
 		},
 		{
-			name:                   "No capability with allowWithoutCapability returns zero capability but matched",
+			name: "Grants with the same subject return it once",
+			capMap: grants(
+				`{"allowedAudiences":["https://api.example.com"],"subject":"worker-fleet"}`,
+				`{"allowedAudiences":["https://api.example.com","https://other.example.com"],"subject":" worker-fleet "}`,
+			),
+			expectMatched:  true,
+			expectSubjects: []string{"worker-fleet"},
+		},
+		{
+			name: "Grants with different subjects return all of them, sorted",
+			capMap: grants(
+				`{"allowedAudiences":["https://api.example.com"],"subject":"group-b"}`,
+				`{"allowedAudiences":["https://api.example.com"],"subject":"group-a"}`,
+			),
+			expectMatched:  true,
+			expectSubjects: []string{"group-a", "group-b"},
+		},
+		{
+			name:           "Whitespace-only subject counts as no subject",
+			capMap:         grants(`{"allowedAudiences":["https://api.example.com"],"subject":"   "}`),
+			expectMatched:  true,
+			expectSubjects: nil,
+		},
+		{
+			name:           "Subject is trimmed",
+			capMap:         grants(`{"allowedAudiences":["https://api.example.com"],"subject":"  group-a\t"}`),
+			expectMatched:  true,
+			expectSubjects: []string{"group-a"},
+		},
+		{
+			name:           "Grant with control characters in the subject is skipped",
+			capMap:         grants(`{"allowedAudiences":["https://api.example.com"],"subject":"group-a\nfake log line"}`),
+			expectMatched:  false,
+			expectSubjects: nil,
+		},
+		{
+			name:           "Grant with a BiDi override in the subject is skipped",
+			capMap:         grants(`{"allowedAudiences":["https://api.example.com"],"subject":"group-\u202ea"}`),
+			expectMatched:  false,
+			expectSubjects: nil,
+		},
+		{
+			name:           "Grant with a subject longer than 512 characters is skipped",
+			capMap:         grants(`{"allowedAudiences":["https://api.example.com"],"subject":"` + strings.Repeat("a", 513) + `"}`),
+			expectMatched:  false,
+			expectSubjects: nil,
+		},
+		{
+			name:           "Grant with a subject of 512 characters is accepted",
+			capMap:         grants(`{"allowedAudiences":["https://api.example.com"],"subject":"` + strings.Repeat("a", 512) + `"}`),
+			expectMatched:  true,
+			expectSubjects: []string{strings.Repeat("a", 512)},
+		},
+		{
+			name: "Malformed grant is skipped and the next grant still matches",
+			capMap: grants(
+				`{"allowedAudiences":["https://api.example.com"],"subject":"group-a"} {"subject":"group-b"}`,
+				`{"allowedAudiences":["https://api.example.com"],"subject":"group-c"}`,
+			),
+			expectMatched:  true,
+			expectSubjects: []string{"group-c"},
+		},
+		{
+			name:           "Non-matching grants return no subjects",
+			capMap:         grants(`{"allowedAudiences":["https://other.example.com"],"subject":"other-group"}`),
+			expectMatched:  false,
+			expectSubjects: nil,
+		},
+		{
+			name:                   "No capability with allowWithoutCapability returns no subjects but matched",
 			capMap:                 tailcfg.PeerCapMap{},
 			allowWithoutCapability: true,
 			expectMatched:          true,
-			expectSubject:          "",
+			expectSubjects:         nil,
 		},
 	}
 
@@ -248,9 +316,38 @@ func TestMatchAudienceCapability(t *testing.T) {
 				CapMap: tt.capMap,
 			}
 
-			matched, ok := MatchAudienceCapability(t.Context(), &whois, audience, tt.allowWithoutCapability)
+			subjects, ok := MatchAudienceCapability(t.Context(), &whois, audience, tt.allowWithoutCapability)
 			assert.Equal(t, tt.expectMatched, ok)
-			assert.Equal(t, tt.expectSubject, matched.Subject)
+			assert.Equal(t, tt.expectSubjects, subjects)
+		})
+	}
+}
+
+func TestParseCapability(t *testing.T) {
+	t.Run("valid grant", func(t *testing.T) {
+		tsiamCap, err := parseCapability(tailcfg.RawMessage(` {"allowedAudiences":["https://api.example.com"],"subject":"group-a"} `))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"https://api.example.com"}, tsiamCap.AllowedAudiences)
+		assert.Equal(t, "group-a", tsiamCap.Subject)
+	})
+
+	for name, raw := range map[string]string{
+		"null":            `null`,
+		"empty":           ``,
+		"whitespace":      `  `,
+		"number":          `123`,
+		"string":          `"https://api.example.com"`,
+		"array":           `[{"allowedAudiences":["https://api.example.com"]}]`,
+		"invalid JSON":    `not valid json`,
+		"unknown field":   `{"allowedAudience":["https://api.example.com"]}`,
+		"trailing object": `{"allowedAudiences":["https://api.example.com"]}{}`,
+		"trailing value":  `{"allowedAudiences":["https://api.example.com"]} 1`,
+		"trailing brace":  `{"allowedAudiences":["https://api.example.com"]}}`,
+		"truncated":       `{"allowedAudiences":["https://api.example.com"]`,
+	} {
+		t.Run("rejects "+name, func(t *testing.T) {
+			_, err := parseCapability(tailcfg.RawMessage(raw))
+			require.Error(t, err)
 		})
 	}
 }
@@ -261,6 +358,8 @@ func FuzzMatchAudienceCapability(f *testing.F) {
 	// Seed with known-good and known-malformed shapes
 	f.Add([]byte(`{"allowedAudiences":["https://api.example.com"]}`))
 	f.Add([]byte(`{"allowedAudiences":["https://api.example.com"],"subject":"group-a"}`))
+	f.Add([]byte(`{"allowedAudiences":["https://api.example.com"],"subject":"  "}`))
+	f.Add([]byte(`{"allowedAudiences":["https://api.example.com"]} {"subject":"group-a"}`))
 	f.Add([]byte(`{"allowedAudiences":[]}`))
 	f.Add([]byte(`{"allowedAudience":["https://api.example.com"]}`)) // typo - unknown field
 	f.Add([]byte(`not valid json`))
@@ -279,10 +378,10 @@ func FuzzMatchAudienceCapability(f *testing.F) {
 		}
 
 		// Must never panic, regardless of input
-		matched, ok := MatchAudienceCapability(t.Context(), whois, targetAudience, false)
+		subjects, ok := MatchAudienceCapability(t.Context(), whois, targetAudience, false)
 
 		// If we matched, the input MUST decode to a TsiamCapability containing the target audience
-		// This catches a regression where DisallowUnknownFields is removed and a typo'd field silently passes
+		// This catches a regression where DisallowUnknownFields is removed and a typo'd field silently passes, or where trailing data after the object is ignored
 		if ok {
 			var decoded TsiamCapability
 			err := json.Unmarshal(raw, &decoded)
@@ -292,9 +391,15 @@ func FuzzMatchAudienceCapability(f *testing.F) {
 			if !slices.Contains(decoded.AllowedAudiences, targetAudience) {
 				t.Fatalf("matched %q but allowedAudiences %v does not contain %q", raw, decoded.AllowedAudiences, targetAudience)
 			}
-			// And the returned cap must equal what's in the grant
-			if matched.Subject != decoded.Subject {
-				t.Fatalf("matched.Subject=%q but decoded.Subject=%q for input %q", matched.Subject, decoded.Subject, raw)
+
+			// And the returned subject must be the one in the grant, trimmed
+			var expectSubjects []string
+			subject := strings.TrimSpace(decoded.Subject)
+			if subject != "" {
+				expectSubjects = []string{subject}
+			}
+			if !slices.Equal(subjects, expectSubjects) {
+				t.Fatalf("subjects=%q but decoded.Subject=%q for input %q", subjects, decoded.Subject, raw)
 			}
 		}
 	})
