@@ -93,142 +93,37 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build for all platforms
-        env:
-          CGO_ENABLED: "0"
-        run: |
-          mkdir -p .bin .out
-
-          echo -e "\n###\nBuilding linux/amd64\n"
-          mkdir .bin/tsiam-${BUILD_ID}-linux-amd64
-          GOOS=linux GOARCH=amd64 \
-            go build \
-              -ldflags "${BUILD_LDFLAGS}" \
-              -o .bin/tsiam-${BUILD_ID}-linux-amd64/tsiam \
-              -trimpath \
-              ./cmd
-          cp LICENSE.md .bin/tsiam-${BUILD_ID}-linux-amd64
-          cp -r README.md .bin/tsiam-${BUILD_ID}-linux-amd64
-          (cd .bin && tar -czvf ../.out/tsiam-${BUILD_ID}-linux-amd64.tar.gz tsiam-${BUILD_ID}-linux-amd64)
-
-          echo -e "\n###\nBuilding linux/arm64\n"
-          mkdir .bin/tsiam-${BUILD_ID}-linux-arm64
-          GOOS=linux GOARCH=arm64 \
-            go build \
-              -ldflags "${BUILD_LDFLAGS}" \
-              -o .bin/tsiam-${BUILD_ID}-linux-arm64/tsiam \
-              -trimpath \
-              ./cmd
-          cp LICENSE.md .bin/tsiam-${BUILD_ID}-linux-arm64
-          cp -r README.md .bin/tsiam-${BUILD_ID}-linux-arm64
-          (cd .bin && tar -czvf ../.out/tsiam-${BUILD_ID}-linux-arm64.tar.gz tsiam-${BUILD_ID}-linux-arm64)
-
-          echo -e "\n###\nBuilding linux/armv7\n"
-          mkdir .bin/tsiam-${BUILD_ID}-linux-armv7
-          GOOS=linux GOARCH=arm GOARM=7 \
-            go build \
-              -ldflags "${BUILD_LDFLAGS}" \
-              -o .bin/tsiam-${BUILD_ID}-linux-armv7/tsiam \
-              -trimpath \
-              ./cmd
-          cp LICENSE.md .bin/tsiam-${BUILD_ID}-linux-armv7
-          cp -r README.md .bin/tsiam-${BUILD_ID}-linux-armv7
-          (cd .bin && tar -czvf ../.out/tsiam-${BUILD_ID}-linux-armv7.tar.gz tsiam-${BUILD_ID}-linux-armv7)
-
-          echo -e "\n###\nBuilding windows/amd64\n"
-          mkdir .bin/tsiam-${BUILD_ID}-windows-x64
-          GOOS=windows GOARCH=amd64 \
-            go build \
-              -ldflags "${BUILD_LDFLAGS}" \
-              -o .bin/tsiam-${BUILD_ID}-windows-x64/tsiam.exe \
-              -trimpath \
-              ./cmd
-          cp LICENSE.md .bin/tsiam-${BUILD_ID}-windows-x64
-          cp -r README.md .bin/tsiam-${BUILD_ID}-windows-x64
-          (cd .bin/tsiam-${BUILD_ID}-windows-x64 && zip -r ../../.out/tsiam-${BUILD_ID}-windows-x64.zip .)
-
-          echo -e "\n###\nBuilding windows/arm64\n"
-          mkdir .bin/tsiam-${BUILD_ID}-windows-arm64
-          GOOS=windows GOARCH=arm64 \
-            go build \
-              -ldflags "${BUILD_LDFLAGS}" \
-              -o .bin/tsiam-${BUILD_ID}-windows-arm64/tsiam.exe \
-              -trimpath \
-              ./cmd
-          cp LICENSE.md .bin/tsiam-${BUILD_ID}-windows-arm64
-          cp -r README.md .bin/tsiam-${BUILD_ID}-windows-arm64
-          (cd .bin/tsiam-${BUILD_ID}-windows-arm64 && zip -r ../../.out/tsiam-${BUILD_ID}-windows-arm64.zip .)
-
-          echo -e "\n###\nBuilding freebsd/amd64\n"
-          mkdir .bin/tsiam-${BUILD_ID}-freebsd-amd64
-          GOOS=freebsd GOARCH=amd64 \
-            go build \
-              -ldflags "${BUILD_LDFLAGS}" \
-              -o .bin/tsiam-${BUILD_ID}-freebsd-amd64/tsiam \
-              -trimpath \
-              ./cmd
-          cp LICENSE.md .bin/tsiam-${BUILD_ID}-freebsd-amd64
-          cp -r README.md .bin/tsiam-${BUILD_ID}-freebsd-amd64
-          (cd .bin && tar -czvf ../.out/tsiam-${BUILD_ID}-freebsd-amd64.tar.gz tsiam-${BUILD_ID}-freebsd-amd64)
-
-          echo -e "\n###\nBuilding freebsd/arm64\n"
-          mkdir .bin/tsiam-${BUILD_ID}-freebsd-arm64
-          GOOS=freebsd GOARCH=arm64 \
-            go build \
-              -ldflags "${BUILD_LDFLAGS}" \
-              -o .bin/tsiam-${BUILD_ID}-freebsd-arm64/tsiam \
-              -trimpath \
-              ./cmd
-          cp LICENSE.md .bin/tsiam-${BUILD_ID}-freebsd-arm64
-          cp -r README.md .bin/tsiam-${BUILD_ID}-freebsd-arm64
-          (cd .bin && tar -czvf ../.out/tsiam-${BUILD_ID}-freebsd-arm64.tar.gz tsiam-${BUILD_ID}-freebsd-arm64)
-
-          echo -e "\n###\nLinks for Docker buildx\n"
-          (
-            cd .bin && \
-            ln -v -s tsiam-${BUILD_ID}-linux-amd64 linux-amd64 && \
-            ln -v -s tsiam-${BUILD_ID}-linux-arm64 linux-arm64 && \
-            ln -v -s tsiam-${BUILD_ID}-linux-armv7 linux-arm \
-          )
-
-          echo -e "\n###\nCompilation done\n"
-          echo ".bin:"
-          ls -al .bin
-          echo ".out:"
-          ls -al .out
-
-      # One CycloneDX SBOM per release binary, generated from the module list that Go embeds in each binary
-      # tailscale.com links different modules on each OS, so an SBOM for the whole repo would not match what users deploy
-      # The SBOMs are written to .out before the checksum and attestation steps, so both cover them too
-      - name: Generate SBOMs
+      # Used by scripts/build-binaries.sh to write a CycloneDX SBOM for each release binary to .out, before the checksum and attestation steps, so both cover them too
+      # Each SBOM is generated from the module list that Go embeds in the binary: tailscale.com links different modules on each OS, so an SBOM for the whole repo would not match what users deploy
+      - name: Install cyclonedx-gomod
         env:
           # Pinned to an exact release that is at least a week old
           # `go install pkg@version` ignores this repo's go.mod and verifies the downloaded modules against sum.golang.org
           CYCLONEDX_GOMOD_VERSION: "v1.12.0"
         run: |
           GOBIN="${RUNNER_TEMP}/bin" go install "github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@${CYCLONEDX_GOMOD_VERSION}"
+          echo "CYCLONEDX_GOMOD=${RUNNER_TEMP}/bin/cyclonedx-gomod" >> "$GITHUB_ENV"
 
-          # Usage: sbom <target> <GOOS> <GOARCH> <binary name>
-          # cyclonedx-gomod reads the build settings from the binary, but takes the GOOS and GOARCH in package URLs from `go env`, so they must be set to match the build
-          sbom() {
-            echo -e "\n###\nGenerating SBOM for $1\n"
-            GOOS="$2" GOARCH="$3" "${RUNNER_TEMP}/bin/cyclonedx-gomod" bin \
-              -json \
-              -std \
-              -version "${BUILD_VERSION}" \
-              -output ".out/tsiam-${BUILD_ID}-$1.cdx.json" \
-              ".bin/tsiam-${BUILD_ID}-$1/$4"
-          }
+      - name: Build for all platforms
+        run: |
+          mkdir -p .bin .out
 
-          sbom linux-amd64 linux amd64 tsiam
-          sbom linux-arm64 linux arm64 tsiam
-          sbom linux-armv7 linux arm tsiam
-          sbom windows-x64 windows amd64 tsiam.exe
-          sbom windows-arm64 windows arm64 tsiam.exe
-          sbom freebsd-amd64 freebsd amd64 tsiam
-          sbom freebsd-arm64 freebsd arm64 tsiam
+          for target in linux-amd64 linux-arm64 linux-armv7 windows-x64 windows-arm64 freebsd-amd64 freebsd-arm64; do
+            ./scripts/build-binaries.sh "${target}"
+          done
 
-          echo -e "\n###\nSBOMs done\n"
+          echo -e "\n###\nLinks for Docker buildx\n"
+          (
+            cd .bin && \
+            ln -v -s "tsiam-${BUILD_ID}-linux-amd64" linux-amd64 && \
+            ln -v -s "tsiam-${BUILD_ID}-linux-arm64" linux-arm64 && \
+            ln -v -s "tsiam-${BUILD_ID}-linux-armv7" linux-arm \
+          )
+
+          echo -e "\n###\nCompilation done\n"
+          echo ".bin:"
+          ls -al .bin
+          echo ".out:"
           ls -al .out
 
       - name: Generate checksums

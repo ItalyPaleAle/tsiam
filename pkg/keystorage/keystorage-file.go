@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/italypaleale/go-kit/fsutil"
 	"github.com/lestrrat-go/jwx/v4/jwk"
 )
 
@@ -72,7 +73,8 @@ func (f *FileKeyStorage) Store(ctx context.Context, key jwk.Key) error {
 	}
 
 	// Atomic write so a torn write cannot leave an unparseable key file on disk
-	err = writeFileExclusive(f.path, data)
+	// An existing empty file is replaced, since Load treats it as missing
+	err = fsutil.CreateFile(f.path, data, keyFileMode, fsutil.WithReplaceEmpty())
 	if errors.Is(err, fs.ErrExist) {
 		return errKeyExists
 	} else if err != nil {

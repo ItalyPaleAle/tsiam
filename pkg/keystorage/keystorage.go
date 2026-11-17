@@ -18,6 +18,9 @@ var (
 	errKeyExists  = errors.New("key already exists")
 )
 
+// File mode used by keystorage backends when persisting (wrapped or unwrapped) signing-key material
+const keyFileMode os.FileMode = 0600
+
 // keyID returns the key's `kid` for use in log fields, or an empty string if unset
 func keyID(key jwk.Key) string {
 	kid, _ := key.KeyID()

@@ -16,6 +16,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
+	"github.com/italypaleale/go-kit/fsutil"
 	"github.com/lestrrat-go/jwx/v4/jwk"
 )
 
@@ -313,9 +314,10 @@ func (a *AzureKeyVaultKeyStorage) store(ctx context.Context, key jwk.Key, overwr
 
 	// Atomic write so a torn write cannot leave an unrecoverable wrapped-ciphertext blob on disk
 	if overwrite {
-		err = writeFileAtomic(a.storagePath, out)
+		err = fsutil.WriteFile(a.storagePath, out, keyFileMode)
 	} else {
-		err = writeFileExclusive(a.storagePath, out)
+		// An existing empty file is replaced, since Load treats it as missing
+		err = fsutil.CreateFile(a.storagePath, out, keyFileMode, fsutil.WithReplaceEmpty())
 	}
 	if errors.Is(err, fs.ErrExist) {
 		return errKeyExists
