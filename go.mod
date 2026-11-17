@@ -24,7 +24,7 @@ require (
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/metric v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
-	tailscale.com v1.104.6
+	tailscale.com v1.104.7
 )
 
 require (
