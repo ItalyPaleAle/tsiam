@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -231,16 +232,19 @@ type ConfigStorageAzureKeyVaultKeys struct {
 	// +required
 	StoragePath string `yaml:"storagePath,omitempty"`
 
-	// TenantID is the Azure AD tenant ID for authentication.
-	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	// TenantID is the Microsoft Entra ID tenant ID for authentication.
+	// Required when `clientSecret` is set.
+	// Without `clientSecret` and `clientId`, it's the tenant that DefaultAzureCredential authenticates to (for example, with workload identity or the Azure CLI).
 	TenantID string `yaml:"tenantId,omitempty"`
 
-	// ClientID is the Azure AD application (client) ID for authentication.
-	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	// ClientID is the Microsoft Entra ID application (client) ID for authentication.
+	// Required when `clientSecret` is set.
+	// Without `clientSecret`, it selects a user-assigned managed identity, or the workload identity when `AZURE_FEDERATED_TOKEN_FILE` is set (as on AKS).
+	// If `clientId` and `clientSecret` are both empty, DefaultAzureCredential is used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
 	ClientID string `yaml:"clientId,omitempty"`
 
-	// ClientSecret is the Azure AD application client secret for authentication.
-	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	// ClientSecret is the Microsoft Entra ID application client secret for authentication.
+	// When set, `tenantId` and `clientId` are required too.
 	ClientSecret string `yaml:"clientSecret,omitempty"`
 }
 
@@ -255,16 +259,19 @@ type ConfigStorageAzureKeyVaultSecrets struct {
 	// +required
 	SecretName string `yaml:"secretName,omitempty"`
 
-	// TenantID is the Azure AD tenant ID for authentication.
-	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	// TenantID is the Microsoft Entra ID tenant ID for authentication.
+	// Required when `clientSecret` is set.
+	// Without `clientSecret` and `clientId`, it's the tenant that DefaultAzureCredential authenticates to (for example, with workload identity or the Azure CLI).
 	TenantID string `yaml:"tenantId,omitempty"`
 
-	// ClientID is the Azure AD application (client) ID for authentication.
-	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	// ClientID is the Microsoft Entra ID application (client) ID for authentication.
+	// Required when `clientSecret` is set.
+	// Without `clientSecret`, it selects a user-assigned managed identity, or the workload identity when `AZURE_FEDERATED_TOKEN_FILE` is set (as on AKS).
+	// If `clientId` and `clientSecret` are both empty, DefaultAzureCredential is used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
 	ClientID string `yaml:"clientId,omitempty"`
 
-	// ClientSecret is the Azure AD application client secret for authentication.
-	// If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	// ClientSecret is the Microsoft Entra ID application client secret for authentication.
+	// When set, `tenantId` and `clientId` are required too.
 	ClientSecret string `yaml:"clientSecret,omitempty"`
 }
 
@@ -405,13 +412,22 @@ func (c *Config) Validate(logger *slog.Logger) error {
 			return errors.New("configuration option 'signingKey.azureKeyVaultKeys' must be set when 'signingKey.storage' is 'AzureKeyVaultKeys'")
 		}
 		if c.SigningKey.AzureKeyVaultKeys.VaultURL == "" {
-			return errors.New("configuration option 'signingKey.azureKeyVaultKeys.vaultURL' must be set when 'signingKey.storage' is 'AzureKeyVaultKeys'")
+			return errors.New("configuration option 'signingKey.azureKeyVaultKeys.vaultUrl' must be set when 'signingKey.storage' is 'AzureKeyVaultKeys'")
+		}
+		err = validateAzureKeyVaultURL("signingKey.azureKeyVaultKeys.vaultUrl", c.SigningKey.AzureKeyVaultKeys.VaultURL)
+		if err != nil {
+			return err
 		}
 		if c.SigningKey.AzureKeyVaultKeys.KeyName == "" {
 			return errors.New("configuration option 'signingKey.azureKeyVaultKeys.keyName' must be set when 'signingKey.storage' is 'AzureKeyVaultKeys'")
 		}
 		if c.SigningKey.AzureKeyVaultKeys.StoragePath == "" {
 			return errors.New("configuration option 'signingKey.azureKeyVaultKeys.storagePath' must be set when 'signingKey.storage' is 'AzureKeyVaultKeys'")
+		}
+		akvk := c.SigningKey.AzureKeyVaultKeys
+		err = validateAzureCredentials("signingKey.azureKeyVaultKeys", akvk.TenantID, akvk.ClientID, akvk.ClientSecret)
+		if err != nil {
+			return err
 		}
 
 		keyVersion := c.SigningKey.AzureKeyVaultKeys.KeyVersion
@@ -425,10 +441,19 @@ func (c *Config) Validate(logger *slog.Logger) error {
 			return errors.New("configuration option 'signingKey.azureKeyVaultSecrets' must be set when 'signingKey.storage' is 'AzureKeyVaultSecrets'")
 		}
 		if c.SigningKey.AzureKeyVaultSecrets.VaultURL == "" {
-			return errors.New("configuration option 'signingKey.azureKeyVaultSecrets.vaultURL' must be set when 'signingKey.storage' is 'AzureKeyVaultSecrets'")
+			return errors.New("configuration option 'signingKey.azureKeyVaultSecrets.vaultUrl' must be set when 'signingKey.storage' is 'AzureKeyVaultSecrets'")
+		}
+		err = validateAzureKeyVaultURL("signingKey.azureKeyVaultSecrets.vaultUrl", c.SigningKey.AzureKeyVaultSecrets.VaultURL)
+		if err != nil {
+			return err
 		}
 		if c.SigningKey.AzureKeyVaultSecrets.SecretName == "" {
 			return errors.New("configuration option 'signingKey.azureKeyVaultSecrets.secretName' must be set when 'signingKey.storage' is 'AzureKeyVaultSecrets'")
+		}
+		akvs := c.SigningKey.AzureKeyVaultSecrets
+		err = validateAzureCredentials("signingKey.azureKeyVaultSecrets", akvs.TenantID, akvs.ClientID, akvs.ClientSecret)
+		if err != nil {
+			return err
 		}
 
 	default:
@@ -447,6 +472,37 @@ func (c *Config) Validate(logger *slog.Logger) error {
 		return errors.New("if 'tsnet.authKey' is set 'tsnet.idToken', 'tsnet.idTokenFile', and 'tsnet.audience' must not be")
 	}
 
+	return nil
+}
+
+// Checks that the URL of an Azure Key Vault is an https:// URL that contains only the host (and optionally a port)
+// The Key Vault SDK sends the access token to this URL, so anything else is a configuration mistake
+func validateAzureKeyVaultURL(option string, value string) error {
+	u, err := url.Parse(value)
+	if err != nil {
+		return fmt.Errorf("configuration option '%s' is not a valid URL: %w", option, err)
+	}
+
+	onlyHost := u.Scheme == "https" &&
+		u.Opaque == "" &&
+		u.Hostname() != "" &&
+		u.User == nil &&
+		(u.Path == "" || u.Path == "/") &&
+		u.RawQuery == "" && !u.ForceQuery &&
+		u.Fragment == ""
+	if !onlyHost {
+		return fmt.Errorf("configuration option '%s' must be an https URL that contains only the vault's host, e.g. 'https://myvault.vault.azure.net/'", option)
+	}
+
+	return nil
+}
+
+// Checks the credentials used to authenticate with Azure Key Vault
+// A client secret only works together with the tenant and client IDs, and without them tsiam would silently fall back to other credentials
+func validateAzureCredentials(option string, tenantID string, clientID string, clientSecret string) error {
+	if clientSecret != "" && (tenantID == "" || clientID == "") {
+		return fmt.Errorf("configuration options '%[1]s.tenantId' and '%[1]s.clientId' must be set when '%[1]s.clientSecret' is set", option)
+	}
 	return nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/lestrrat-go/jwx/v4/jwk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -80,5 +81,36 @@ func TestLoadOrCreateKey(t *testing.T) {
 		stored, err := ks.Load(t.Context())
 		require.NoError(t, err)
 		assert.Equal(t, kid(other), kid(stored))
+	})
+}
+
+func TestGetAzureKeyVaultCredentials(t *testing.T) {
+	// The credentials are only created here, so no request is sent to Azure
+	t.Run("client secret", func(t *testing.T) {
+		creds, err := getAzureKeyVaultCredentials("00000000-0000-0000-0000-000000000000", "client", "secret")
+		require.NoError(t, err)
+		assert.IsType(t, &azidentity.ClientSecretCredential{}, creds)
+	})
+
+	t.Run("client ID selects a user-assigned managed identity", func(t *testing.T) {
+		t.Setenv("AZURE_FEDERATED_TOKEN_FILE", "")
+
+		creds, err := getAzureKeyVaultCredentials("", "client", "")
+		require.NoError(t, err)
+		assert.IsType(t, &azidentity.ManagedIdentityCredential{}, creds)
+	})
+
+	t.Run("client ID selects workload identity when the federated token file is set", func(t *testing.T) {
+		t.Setenv("AZURE_FEDERATED_TOKEN_FILE", filepath.Join(t.TempDir(), "token"))
+
+		creds, err := getAzureKeyVaultCredentials("00000000-0000-0000-0000-000000000000", "client", "")
+		require.NoError(t, err)
+		assert.IsType(t, &azidentity.WorkloadIdentityCredential{}, creds)
+	})
+
+	t.Run("no client ID uses the default credentials", func(t *testing.T) {
+		creds, err := getAzureKeyVaultCredentials("00000000-0000-0000-0000-000000000000", "", "")
+		require.NoError(t, err)
+		assert.IsType(t, &azidentity.DefaultAzureCredential{}, creds)
 	})
 }

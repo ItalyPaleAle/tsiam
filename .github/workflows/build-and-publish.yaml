@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -39,8 +41,9 @@ jobs:
 
       # Lowercase REPO_OWNER which is required for containers
       - name: Set lowercase REPO_OWNER
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
         run: |
-          REPO_OWNER=${{ github.repository_owner }}
           echo "REPO_OWNER=${REPO_OWNER,,}" >>${GITHUB_ENV}
 
       - name: Generate container tags and labels
@@ -56,11 +59,15 @@ jobs:
             type=semver,pattern=v{{major}}
 
       - name: Set variables
+        env:
+          IMAGE_VERSION: ${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
+          IMAGE_CREATED: ${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+          IMAGE_REVISION: ${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
         run: |
-          BUILD_ID=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
-          BUILD_VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
-          BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
-          COMMIT_HASH=$(echo "${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}" | head -c 7)
+          BUILD_ID="${IMAGE_VERSION}"
+          BUILD_VERSION="${IMAGE_VERSION}"
+          BUILD_DATE="${IMAGE_CREATED}"
+          COMMIT_HASH=$(echo "${IMAGE_REVISION}" | head -c 7)
 
           echo "BUILD_ID=$BUILD_ID" >> $GITHUB_ENV
           echo "BUILD_VERSION=$BUILD_VERSION" >> $GITHUB_ENV
@@ -93,95 +100,95 @@ jobs:
           mkdir -p .bin .out
 
           echo -e "\n###\nBuilding linux/amd64\n"
-          mkdir .bin/tsiam-${{ env.BUILD_ID }}-linux-amd64
+          mkdir .bin/tsiam-${BUILD_ID}-linux-amd64
           GOOS=linux GOARCH=amd64 \
             go build \
-              -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/tsiam-${{ env.BUILD_ID }}-linux-amd64/tsiam \
+              -ldflags "${BUILD_LDFLAGS}" \
+              -o .bin/tsiam-${BUILD_ID}-linux-amd64/tsiam \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-linux-amd64
-          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-linux-amd64
-          (cd .bin && tar -czvf ../.out/tsiam-${{ env.BUILD_ID }}-linux-amd64.tar.gz tsiam-${{ env.BUILD_ID }}-linux-amd64)
+          cp LICENSE.md .bin/tsiam-${BUILD_ID}-linux-amd64
+          cp -r README.md .bin/tsiam-${BUILD_ID}-linux-amd64
+          (cd .bin && tar -czvf ../.out/tsiam-${BUILD_ID}-linux-amd64.tar.gz tsiam-${BUILD_ID}-linux-amd64)
 
           echo -e "\n###\nBuilding linux/arm64\n"
-          mkdir .bin/tsiam-${{ env.BUILD_ID }}-linux-arm64
+          mkdir .bin/tsiam-${BUILD_ID}-linux-arm64
           GOOS=linux GOARCH=arm64 \
             go build \
-              -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/tsiam-${{ env.BUILD_ID }}-linux-arm64/tsiam \
+              -ldflags "${BUILD_LDFLAGS}" \
+              -o .bin/tsiam-${BUILD_ID}-linux-arm64/tsiam \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-linux-arm64
-          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-linux-arm64
-          (cd .bin && tar -czvf ../.out/tsiam-${{ env.BUILD_ID }}-linux-arm64.tar.gz tsiam-${{ env.BUILD_ID }}-linux-arm64)
+          cp LICENSE.md .bin/tsiam-${BUILD_ID}-linux-arm64
+          cp -r README.md .bin/tsiam-${BUILD_ID}-linux-arm64
+          (cd .bin && tar -czvf ../.out/tsiam-${BUILD_ID}-linux-arm64.tar.gz tsiam-${BUILD_ID}-linux-arm64)
 
           echo -e "\n###\nBuilding linux/armv7\n"
-          mkdir .bin/tsiam-${{ env.BUILD_ID }}-linux-armv7
+          mkdir .bin/tsiam-${BUILD_ID}-linux-armv7
           GOOS=linux GOARCH=arm GOARM=7 \
             go build \
-              -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/tsiam-${{ env.BUILD_ID }}-linux-armv7/tsiam \
+              -ldflags "${BUILD_LDFLAGS}" \
+              -o .bin/tsiam-${BUILD_ID}-linux-armv7/tsiam \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-linux-armv7
-          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-linux-armv7
-          (cd .bin && tar -czvf ../.out/tsiam-${{ env.BUILD_ID }}-linux-armv7.tar.gz tsiam-${{ env.BUILD_ID }}-linux-armv7)
+          cp LICENSE.md .bin/tsiam-${BUILD_ID}-linux-armv7
+          cp -r README.md .bin/tsiam-${BUILD_ID}-linux-armv7
+          (cd .bin && tar -czvf ../.out/tsiam-${BUILD_ID}-linux-armv7.tar.gz tsiam-${BUILD_ID}-linux-armv7)
 
           echo -e "\n###\nBuilding windows/amd64\n"
-          mkdir .bin/tsiam-${{ env.BUILD_ID }}-windows-x64
+          mkdir .bin/tsiam-${BUILD_ID}-windows-x64
           GOOS=windows GOARCH=amd64 \
             go build \
-              -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/tsiam-${{ env.BUILD_ID }}-windows-x64/tsiam.exe \
+              -ldflags "${BUILD_LDFLAGS}" \
+              -o .bin/tsiam-${BUILD_ID}-windows-x64/tsiam.exe \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-windows-x64
-          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-windows-x64
-          (cd .bin/tsiam-${{ env.BUILD_ID }}-windows-x64 && zip -r ../../.out/tsiam-${{ env.BUILD_ID }}-windows-x64.zip .)
+          cp LICENSE.md .bin/tsiam-${BUILD_ID}-windows-x64
+          cp -r README.md .bin/tsiam-${BUILD_ID}-windows-x64
+          (cd .bin/tsiam-${BUILD_ID}-windows-x64 && zip -r ../../.out/tsiam-${BUILD_ID}-windows-x64.zip .)
 
           echo -e "\n###\nBuilding windows/arm64\n"
-          mkdir .bin/tsiam-${{ env.BUILD_ID }}-windows-arm64
+          mkdir .bin/tsiam-${BUILD_ID}-windows-arm64
           GOOS=windows GOARCH=arm64 \
             go build \
-              -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/tsiam-${{ env.BUILD_ID }}-windows-arm64/tsiam.exe \
+              -ldflags "${BUILD_LDFLAGS}" \
+              -o .bin/tsiam-${BUILD_ID}-windows-arm64/tsiam.exe \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-windows-arm64
-          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-windows-arm64
-          (cd .bin/tsiam-${{ env.BUILD_ID }}-windows-arm64 && zip -r ../../.out/tsiam-${{ env.BUILD_ID }}-windows-arm64.zip .)
+          cp LICENSE.md .bin/tsiam-${BUILD_ID}-windows-arm64
+          cp -r README.md .bin/tsiam-${BUILD_ID}-windows-arm64
+          (cd .bin/tsiam-${BUILD_ID}-windows-arm64 && zip -r ../../.out/tsiam-${BUILD_ID}-windows-arm64.zip .)
 
           echo -e "\n###\nBuilding freebsd/amd64\n"
-          mkdir .bin/tsiam-${{ env.BUILD_ID }}-freebsd-amd64
+          mkdir .bin/tsiam-${BUILD_ID}-freebsd-amd64
           GOOS=freebsd GOARCH=amd64 \
             go build \
-              -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/tsiam-${{ env.BUILD_ID }}-freebsd-amd64/tsiam \
+              -ldflags "${BUILD_LDFLAGS}" \
+              -o .bin/tsiam-${BUILD_ID}-freebsd-amd64/tsiam \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-freebsd-amd64
-          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-freebsd-amd64
-          (cd .bin && tar -czvf ../.out/tsiam-${{ env.BUILD_ID }}-freebsd-amd64.tar.gz tsiam-${{ env.BUILD_ID }}-freebsd-amd64)
+          cp LICENSE.md .bin/tsiam-${BUILD_ID}-freebsd-amd64
+          cp -r README.md .bin/tsiam-${BUILD_ID}-freebsd-amd64
+          (cd .bin && tar -czvf ../.out/tsiam-${BUILD_ID}-freebsd-amd64.tar.gz tsiam-${BUILD_ID}-freebsd-amd64)
 
           echo -e "\n###\nBuilding freebsd/arm64\n"
-          mkdir .bin/tsiam-${{ env.BUILD_ID }}-freebsd-arm64
+          mkdir .bin/tsiam-${BUILD_ID}-freebsd-arm64
           GOOS=freebsd GOARCH=arm64 \
             go build \
-              -ldflags "${{ env.BUILD_LDFLAGS }}" \
-              -o .bin/tsiam-${{ env.BUILD_ID }}-freebsd-arm64/tsiam \
+              -ldflags "${BUILD_LDFLAGS}" \
+              -o .bin/tsiam-${BUILD_ID}-freebsd-arm64/tsiam \
               -trimpath \
               ./cmd
-          cp LICENSE.md .bin/tsiam-${{ env.BUILD_ID }}-freebsd-arm64
-          cp -r README.md .bin/tsiam-${{ env.BUILD_ID }}-freebsd-arm64
-          (cd .bin && tar -czvf ../.out/tsiam-${{ env.BUILD_ID }}-freebsd-arm64.tar.gz tsiam-${{ env.BUILD_ID }}-freebsd-arm64)
+          cp LICENSE.md .bin/tsiam-${BUILD_ID}-freebsd-arm64
+          cp -r README.md .bin/tsiam-${BUILD_ID}-freebsd-arm64
+          (cd .bin && tar -czvf ../.out/tsiam-${BUILD_ID}-freebsd-arm64.tar.gz tsiam-${BUILD_ID}-freebsd-arm64)
 
           echo -e "\n###\nLinks for Docker buildx\n"
           (
             cd .bin && \
-            ln -v -s tsiam-${{ env.BUILD_ID }}-linux-amd64 linux-amd64 && \
-            ln -v -s tsiam-${{ env.BUILD_ID }}-linux-arm64 linux-arm64 && \
-            ln -v -s tsiam-${{ env.BUILD_ID }}-linux-armv7 linux-arm \
+            ln -v -s tsiam-${BUILD_ID}-linux-amd64 linux-amd64 && \
+            ln -v -s tsiam-${BUILD_ID}-linux-arm64 linux-arm64 && \
+            ln -v -s tsiam-${BUILD_ID}-linux-armv7 linux-arm \
           )
 
           echo -e "\n###\nCompilation done\n"
@@ -305,6 +312,7 @@ jobs:
         with:
           # Fetch the tag so its annotation message is available for release notes
           fetch-tags: true
+          persist-credentials: false
 
       - name: Download build artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

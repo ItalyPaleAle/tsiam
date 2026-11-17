@@ -26,12 +26,18 @@ import (
 // 1KB
 const maxBodySize = 1 << 10
 
+// Default time that Run waits for active requests to complete during shutdown
+const defaultShutdownTimeout = 5 * time.Second
+
 // Server is the HTTP API server
 type Server struct {
 	appSrv  *http.Server
 	handler http.Handler
 	running atomic.Bool
 	wg      sync.WaitGroup
+
+	// Time that Run waits for active requests to complete during shutdown
+	shutdownTimeout time.Duration
 
 	appMetrics *metrics.AppMetrics
 
@@ -76,11 +82,12 @@ func NewServer(opts NewServerOpts) (s *Server, err error) {
 	}
 
 	s = &Server{
-		appMetrics:  opts.AppMetrics,
-		tsnetServer: opts.TSNetServer,
-		whoIs:       opts.TSNetServer.WhoIs,
-		hostname:    opts.TSNetServer.Hostname,
-		signingKey:  opts.SigningKey,
+		appMetrics:      opts.AppMetrics,
+		tsnetServer:     opts.TSNetServer,
+		whoIs:           opts.TSNetServer.WhoIs,
+		hostname:        opts.TSNetServer.Hostname,
+		signingKey:      opts.SigningKey,
+		shutdownTimeout: defaultShutdownTimeout,
 	}
 
 	// Pre-compute the JWKS, encoded as JSON
@@ -168,19 +175,10 @@ func (s *Server) Run(ctx context.Context) error {
 		s.wg.Done()
 		return fmt.Errorf("failed to start app server: %w", err)
 	}
-	defer func() { //nolint:contextcheck
+	defer func() {
 		// Handle graceful shutdown
 		defer s.wg.Done()
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err := s.appSrv.Shutdown(shutdownCtx)
-		shutdownCancel()
-		if err != nil {
-			// Log the error only (could be context canceled)
-			slog.WarnContext(shutdownCtx,
-				"App server shutdown error",
-				slog.Any("error", err),
-			)
-		}
+		s.stopAppServer(ctx)
 	}()
 
 	// Block until the context is canceled or the app server exits unexpectedly
@@ -192,6 +190,27 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Servers are stopped with deferred calls
 	return nil
+}
+
+// Stops the app server, waiting up to shutdownTimeout for active requests to complete
+// After that, it closes the connections that are still open, which also cancels their requests' contexts, so handlers stop using the tsnet server and the metrics, which are shut down after Run returns
+func (s *Server) stopAppServer(parentCtx context.Context) {
+	// The parent context is already canceled at this point, but it can carry values for logging
+	ctx := context.WithoutCancel(parentCtx)
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, s.shutdownTimeout)
+	defer shutdownCancel()
+
+	err := s.appSrv.Shutdown(shutdownCtx)
+	if err == nil {
+		return
+	}
+
+	slog.WarnContext(ctx, "App server didn't shut down in time, closing the remaining connections", slog.Any("error", err))
+	err = s.appSrv.Close()
+	if err != nil {
+		slog.WarnContext(ctx, "Error closing the app server", slog.Any("error", err))
+	}
 }
 
 func (s *Server) startAppServer(ctx context.Context, appSrvErrCh chan<- error) (err error) {
@@ -209,18 +228,20 @@ func (s *Server) startAppServer(ctx context.Context, appSrvErrCh chan<- error) (
 
 	// Create the listener if we don't have one already
 	// The tsnet listener is already TLS-wrapped
-	if s.tsListener == nil {
+	// A listener created here is closed when the server stops, so it's not stored in s.tsListener, and the next call to Run creates a new one
+	ln := s.tsListener
+	if ln == nil {
 		// Set the ConnContext function which augments the context with information about the tsnet connection
 		s.appSrv.ConnContext = s.tsnetServer.ConnContextFn()
 
 		if cfg.TSNet.Funnel {
 			// Start the Funnel listener if enabled
-			s.tsListener, err = s.tsnetServer.ListenFunnel(443)
+			ln, err = s.tsnetServer.ListenFunnel(443)
 			if err != nil {
 				return fmt.Errorf("failed to listen on tsnet with funnel: %w", err)
 			}
 		} else {
-			s.tsListener, err = s.tsnetServer.Listen(443)
+			ln, err = s.tsnetServer.Listen(443)
 			if err != nil {
 				return fmt.Errorf("failed to listen on tsnet: %w", err)
 			}
@@ -240,10 +261,10 @@ func (s *Server) startAppServer(ctx context.Context, appSrvErrCh chan<- error) (
 	// Start the HTTP server in a background goroutine
 	// Tracked by s.wg so Run does not return while Serve is still draining connections after shutdown
 	s.wg.Go(func() { //nolint:contextcheck
-		defer s.tsListener.Close() //nolint:errcheck
+		defer ln.Close() //nolint:errcheck
 
 		// Next call blocks until the server is shut down
-		srvErr := s.appSrv.Serve(s.tsListener)
+		srvErr := s.appSrv.Serve(ln)
 		if !errors.Is(srvErr, http.ErrServerClosed) {
 			select {
 			case appSrvErrCh <- srvErr:

@@ -220,20 +220,23 @@ signingKey:
 
     ## signingKey.azureKeyVaultKeys.tenantId (string)
     ## Description:
-    ##   TenantID is the Azure AD tenant ID for authentication.
-    ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    ##   TenantID is the Microsoft Entra ID tenant ID for authentication.
+    ##   Required when `clientSecret` is set.
+    ##   Without `clientSecret` and `clientId`, it's the tenant that DefaultAzureCredential authenticates to (for example, with workload identity or the Azure CLI).
     #tenantId: ""
 
     ## signingKey.azureKeyVaultKeys.clientId (string)
     ## Description:
-    ##   ClientID is the Azure AD application (client) ID for authentication.
-    ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    ##   ClientID is the Microsoft Entra ID application (client) ID for authentication.
+    ##   Required when `clientSecret` is set.
+    ##   Without `clientSecret`, it selects a user-assigned managed identity, or the workload identity when `AZURE_FEDERATED_TOKEN_FILE` is set (as on AKS).
+    ##   If `clientId` and `clientSecret` are both empty, DefaultAzureCredential is used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
     #clientId: ""
 
     ## signingKey.azureKeyVaultKeys.clientSecret (string)
     ## Description:
-    ##   ClientSecret is the Azure AD application client secret for authentication.
-    ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    ##   ClientSecret is the Microsoft Entra ID application client secret for authentication.
+    ##   When set, `tenantId` and `clientId` are required too.
     #clientSecret: ""
 
   ## signingKey.azureKeyVaultSecrets
@@ -255,19 +258,22 @@ signingKey:
 
     ## signingKey.azureKeyVaultSecrets.tenantId (string)
     ## Description:
-    ##   TenantID is the Azure AD tenant ID for authentication.
-    ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    ##   TenantID is the Microsoft Entra ID tenant ID for authentication.
+    ##   Required when `clientSecret` is set.
+    ##   Without `clientSecret` and `clientId`, it's the tenant that DefaultAzureCredential authenticates to (for example, with workload identity or the Azure CLI).
     #tenantId: ""
 
     ## signingKey.azureKeyVaultSecrets.clientId (string)
     ## Description:
-    ##   ClientID is the Azure AD application (client) ID for authentication.
-    ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    ##   ClientID is the Microsoft Entra ID application (client) ID for authentication.
+    ##   Required when `clientSecret` is set.
+    ##   Without `clientSecret`, it selects a user-assigned managed identity, or the workload identity when `AZURE_FEDERATED_TOKEN_FILE` is set (as on AKS).
+    ##   If `clientId` and `clientSecret` are both empty, DefaultAzureCredential is used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
     #clientId: ""
 
     ## signingKey.azureKeyVaultSecrets.clientSecret (string)
     ## Description:
-    ##   ClientSecret is the Azure AD application client secret for authentication.
-    ##   If empty, DefaultAzureCredential will be used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    ##   ClientSecret is the Microsoft Entra ID application client secret for authentication.
+    ##   When set, `tenantId` and `clientId` are required too.
     #clientSecret: ""
 

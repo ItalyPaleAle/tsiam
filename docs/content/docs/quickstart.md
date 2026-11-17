@@ -8,6 +8,7 @@ This guide walks you through running tsiam, connecting it to your Tailnet, and r
 ## Prerequisites
 
 - A [Tailscale](https://tailscale.com) account and a working Tailnet
+- [MagicDNS](https://tailscale.com/kb/1081/magicdns) and [HTTPS certificates](https://tailscale.com/kb/1153/enabling-https) enabled for your Tailnet
 - Docker is optional, but recommended
 
 ## Step 1: Create a configuration file
@@ -22,9 +23,8 @@ tsnet:
   # Optional: Auth key for automatic authentication with Tailscale
   # (used on first startup only)
   #authKey: tskey-auth-xxx
-  # Optional: Advertise tags for ACLs
-  # (often needed for OAuth2 / federation-based node auth)
-  #advertiseTags: ["tag:tsiam"]
+  # Tag for this node, used in the ACL grant in step 4
+  advertiseTags: ["tag:tsiam"]
   # Enable Tailscale Funnel for public OIDC endpoints
   funnel: false
 
@@ -75,13 +75,20 @@ sudo chown 65532:65532 /path/to/tsnet-state /path/to/tsiam-state
 
 ### Pre-built Binaries
 
-Download the latest binary for your platform from the [releases page](https://github.com/ItalyPaleAle/tsiam/releases).
+Download the archive for your platform from the [releases page](https://github.com/ItalyPaleAle/tsiam/releases). For example, on Linux amd64:
 
 ```sh
-# Example for Linux amd64
-curl -L -o tsiam https://github.com/ItalyPaleAle/tsiam/releases/latest/download/tsiam-linux-amd64
-chmod +x tsiam
-./tsiam
+# Set this to the latest version on the releases page
+VERSION="v1.x.x"
+
+curl -fsSLO "https://github.com/ItalyPaleAle/tsiam/releases/download/${VERSION}/tsiam-${VERSION}-linux-amd64.tar.gz"
+
+# Check that the archive was built by tsiam's release workflow (requires the GitHub CLI)
+# Without the GitHub CLI, you can compare the archive's SHA-256 with the one in the release's `checksums.txt` file instead
+gh attestation verify "tsiam-${VERSION}-linux-amd64.tar.gz" --repo ItalyPaleAle/tsiam
+
+tar -xzf "tsiam-${VERSION}-linux-amd64.tar.gz"
+./tsiam-${VERSION}-linux-amd64/tsiam
 ```
 
 The application looks for the configuration file in this order:
@@ -103,7 +110,7 @@ go build -o tsiam ./cmd
 
 On first startup, tsiam needs to join your Tailnet. The simplest way is an auth key:
 
-1. Generate a [Tailscale auth key](https://login.tailscale.com/admin/settings/keys) in the admin console.
+1. Generate a [Tailscale auth key](https://login.tailscale.com/admin/settings/keys) in the admin console, with the `tag:tsiam` tag. The tag must be listed in `tagOwners` in your [Tailnet policy](https://login.tailscale.com/admin/acls) first (see step 4).
 2. Add it to your config:
 
    ```yaml
@@ -117,12 +124,40 @@ Alternatively, you can authenticate via OAuth2 or workload identity federation â
 
 > Authentication credentials are only used on first startup or when the node key expires.
 
-## Step 4: Request a token
+## Step 4: Allow nodes to request tokens
 
-From any machine on your Tailnet:
+By default, a node can only request tokens for the audiences that a Tailscale ACL grant allows. Add a grant to your [Tailnet policy](https://login.tailscale.com/admin/acls):
+
+```json
+{
+  "tagOwners": {
+    "tag:tsiam": ["autogroup:admin"]
+  },
+  "grants": [
+    {
+      "src": ["autogroup:member"],
+      "dst": ["tag:tsiam"],
+      "ip": ["tcp:443"],
+      "app": {
+        "italypaleale.me/tsiam": [
+          { "allowedAudiences": ["https://api.example.com"] }
+        ]
+      }
+    }
+  ]
+}
+```
+
+This grant lets the devices of your Tailnet's members connect to tsiam (`ip`) and request tokens for `https://api.example.com` (`app`). Change `src` to the users or tags of the nodes that need tokens. See [Audience authorization](/docs/audience-authorization) for more details.
+
+## Step 5: Request a token
+
+From a machine on your Tailnet that the grant allows, use tsiam's full MagicDNS name, replacing `tailnet-name` with your Tailnet's DNS name, shown on the DNS page of the admin console.
+
+> The short name `https://tsiam` doesn't work, because the TLS certificate is only valid for the full name.
 
 ```sh
-curl -X POST "https://tsiam/token?resource=https://api.example.com" \
+curl -X POST "https://tsiam.tailnet-name.ts.net/token?resource=https://api.example.com" \
   -H "X-Tsiam: 1"
 ```
 

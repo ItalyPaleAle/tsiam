@@ -34,6 +34,7 @@ Add a grant to your Tailscale ACL policy using the capability key `italypaleale.
     {
       "src": ["tag:webserver"],
       "dst": ["tag:tsiam"],
+      "ip": ["tcp:443"],
       "app": {
         "italypaleale.me/tsiam": [
           {
@@ -47,6 +48,7 @@ Add a grant to your Tailscale ACL policy using the capability key `italypaleale.
     {
       "src": ["tag:backend"],
       "dst": ["tag:tsiam"],
+      "ip": ["tcp:443"],
       "app": {
         "italypaleale.me/tsiam": [
           {
@@ -67,6 +69,7 @@ In this example:
 - Nodes tagged `tag:webserver` can only request tokens for `https://api.example.com`
 - Nodes tagged `tag:backend` can request tokens for both `https://api.example.com` and `sts.amazonaws.com`
 - The tsiam service node must be tagged `tag:tsiam`
+- `ip` lets the nodes connect to tsiam on port 443, and `app` sets the audiences they can request. You can leave out `ip` if another grant or ACL already allows the connection
 
 Each value in the `italypaleale.me/tsiam` list must be a JSON object with only the `allowedAudiences` and `subject` fields. tsiam skips values that aren't (and logs a warning that includes the node ID).
 
@@ -80,6 +83,7 @@ If multiple nodes should share a single workload identity (for example, a fleet 
     {
       "src": ["tag:worker"],
       "dst": ["tag:tsiam"],
+      "ip": ["tcp:443"],
       "app": {
         "italypaleale.me/tsiam": [
           {

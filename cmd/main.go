@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,8 @@ const (
 	getKeyTimeout = 2 * time.Minute
 	// Maximum time to join the tailnet at startup, which includes waiting for interactive login
 	joinTailnetTimeout = 5 * time.Minute
+	// Maximum time for each step of the shutdown
+	shutdownTimeout = 5 * time.Second
 )
 
 func main() {
@@ -60,7 +63,8 @@ func main() {
 	services := make([]servicerunner.Service, 0, 3)
 
 	shutdowns := &shutdownManager{
-		fns: make([]servicerunner.Service, 0, 4),
+		fns:     make([]servicerunner.Service, 0, 4),
+		timeout: shutdownTimeout,
 	}
 
 	// Check the log level first: creating the logger would fail too, but its error doesn't name the configuration option
@@ -88,8 +92,7 @@ func main() {
 	// Validate the configuration
 	err = cfg.Validate(log)
 	if err != nil {
-		shutdowns.Run(log)
-		slogkit.FatalError(log, "Invalid configuration", err)
+		shutdowns.Fatal(log, "Invalid configuration", err)
 		return
 	}
 
@@ -101,8 +104,7 @@ func main() {
 	// Init appMetrics
 	appMetrics, metricsShutdownFn, err := appmetrics.NewAppMetrics(ctx)
 	if err != nil {
-		shutdowns.Run(log)
-		slogkit.FatalError(log, "Failed to init metrics", err)
+		shutdowns.Fatal(log, "Failed to init metrics", err)
 		return
 	}
 	shutdowns.Add(metricsShutdownFn)
@@ -113,8 +115,7 @@ func main() {
 		AppName: buildinfo.AppName,
 	})
 	if err != nil {
-		shutdowns.Run(log)
-		slogkit.FatalError(log, "Failed to init tracing", err)
+		shutdowns.Fatal(log, "Failed to init tracing", err)
 		return
 	}
 	shutdowns.Add(tracerShutdownFn)
@@ -125,8 +126,7 @@ func main() {
 	signingKey, err := getKey(keyCtx)
 	keyCancel()
 	if err != nil {
-		shutdowns.Run(log)
-		slogkit.FatalError(log, "Failed to get signing key", err)
+		shutdowns.Fatal(log, "Failed to get signing key", err)
 		return
 	}
 
@@ -135,9 +135,7 @@ func main() {
 	if cfg.TSNet.IDTokenFile != "" {
 		idToken, err = readIDTokenFile(cfg.TSNet.IDTokenFile)
 		if err != nil {
-			shutdowns.Run(log)
-			slogkit.FatalError(log, "Failed to read tsnet ID token file", err)
-
+			shutdowns.Fatal(log, "Failed to read tsnet ID token file", err)
 			return
 		}
 	}
@@ -156,8 +154,7 @@ func main() {
 	})
 	tsnetCancel()
 	if err != nil {
-		shutdowns.Run(log)
-		slogkit.FatalError(log, "Failed to init TSNet server", err)
+		shutdowns.Fatal(log, "Failed to init TSNet server", err)
 		return
 	}
 	shutdowns.Add(ts.Close)
@@ -170,8 +167,7 @@ func main() {
 		SigningKey:  signingKey,
 	})
 	if err != nil {
-		shutdowns.Run(log)
-		slogkit.FatalError(log, "Failed to init API server", err)
+		shutdowns.Fatal(log, "Failed to init API server", err)
 		return
 	}
 	services = append(services, apiServer.Run)
@@ -182,8 +178,7 @@ func main() {
 		NewServiceRunner(services...).
 		Run(ctx)
 	if err != nil {
-		shutdowns.Run(log)
-		slogkit.FatalError(log, "Failed to run service", err)
+		shutdowns.Fatal(log, "Failed to run service", err)
 		return
 	}
 
@@ -191,7 +186,8 @@ func main() {
 }
 
 type shutdownManager struct {
-	fns []servicerunner.Service
+	fns     []servicerunner.Service
+	timeout time.Duration
 }
 
 func (s *shutdownManager) Add(fn servicerunner.Service) {
@@ -201,17 +197,39 @@ func (s *shutdownManager) Add(fn servicerunner.Service) {
 	s.fns = append(s.fns, fn)
 }
 
+// Run calls the shutdown functions one at a time, in the reverse order they were added
+// Each function gets its own timeout, so one that hangs doesn't stop the others from running
 func (s *shutdownManager) Run(log *slog.Logger) {
-	// Cleanup functions are one-shot and must each run to completion independently, so we set WaitAll to true
-	sr := servicerunner.NewServiceRunner(s.fns...)
-	sr.WaitAll = true
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer shutdownCancel()
-	err := sr.Run(shutdownCtx)
-	if err != nil {
-		log.Error("Error shutting down services", slog.Any("error", err))
+	for _, fn := range slices.Backward(s.fns) {
+		err := s.runOne(fn)
+		if err != nil {
+			log.Error("Error shutting down services", slog.Any("error", err))
+		}
 	}
+	s.fns = nil
+}
+
+// Runs a single shutdown function, converting panics into errors so the remaining functions still run
+func (s *shutdownManager) runOne(fn servicerunner.Service) (err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+
+	defer func() {
+		p := recover()
+		if p != nil {
+			err = fmt.Errorf("shutdown function panicked: %v", p)
+		}
+	}()
+
+	return fn(ctx)
+}
+
+// Fatal logs the error, shuts down everything that was started, and exits with code 1
+// The error is logged before the logger is shut down, so it's exported like every other log
+func (s *shutdownManager) Fatal(log *slog.Logger, message string, err error) {
+	log.Error(message, slog.Any("error", err))
+	s.Run(log)
+	os.Exit(1)
 }
 
 func readIDTokenFile(filePath string) (string, error) {

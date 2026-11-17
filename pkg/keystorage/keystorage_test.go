@@ -1,9 +1,11 @@
 package keystorage
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,4 +56,19 @@ func TestEnsureKeyDir(t *testing.T) {
 		err = ensureKeyDir(filepath.Join(parent, "key.json"))
 		require.ErrorContains(t, err, "is not a directory")
 	})
+}
+
+// Captures the logs sent to the default logger until the end of the test
+// Tests in this package don't run in parallel, so they can replace the default logger
+func captureLogs(t *testing.T) *strings.Builder {
+	t.Helper()
+
+	var buf strings.Builder
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() {
+		slog.SetDefault(prev)
+	})
+
+	return &buf
 }

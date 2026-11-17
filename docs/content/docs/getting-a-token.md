@@ -8,15 +8,19 @@ Any machine on your Tailnet can request a JWT token from tsiam by making a `POST
 ## Request
 
 ```http
-POST https://tsiam/token?resource=<audience>
+POST https://tsiam.tailnet-name.ts.net/token?resource=<audience>
 X-Tsiam: 1
 ```
+
+Use tsiam's full MagicDNS name, with your Tailnet's DNS name instead of `tailnet-name`. The short name (`https://tsiam`) doesn't work, because tsiam's TLS certificate is only valid for the full name.
 
 The `X-Tsiam: 1` header is required and helps preventing cross-site request forgery by ensuring requests are made intentionally. Requests must not include the `Origin` and `Sec-Fetch-*` headers that web browsers send and must not have a body.
 
 The `/token` endpoint is only reachable from within your Tailnet. It is never exposed via Tailscale Funnel.
 
 Nodes from other tailnets can't get tokens, even if they can reach tsiam: this includes nodes shared into your tailnet, and devices of users you shared tsiam with. Nodes whose key has expired can't get tokens either.
+
+Tokens identify the node, not the process that requested them: every process on the node can request the same tokens, including those of other OS users, and containers that share the host's network or Tailscale connection.To give workloads separate identities, run each one as its own node, for example with a Tailscale sidecar for each container.
 
 Additionally, tokens never outlive the key of the node that requested them: if the node's key expires sooner than [`tokens.lifetime`](/docs/configuration#tokens), the token expires with it.
 
@@ -63,7 +67,7 @@ The JWT token contains the requested audience in the `aud` claim, and your Tails
   "sub": "nABC123CNTRL",
 
   // Issuer: the tsiam service that issued this token
-  "iss": "https://your-tsiam",
+  "iss": "https://tsiam.tailnet-name.ts.net",
 
   // Audience: the intended recipient of this token
   "aud": [ "https://api.example.com" ],
@@ -136,7 +140,7 @@ If you set `tokens.claimName` to `tsiam`, the same mapping becomes `assertion.ts
 
 ```sh
 # Get a token for a specific audience
-TOKEN=$(curl -s -X POST "https://tsiam/token?resource=https://api.example.com" -H "X-Tsiam: 1" | jq -r '.access_token')
+TOKEN=$(curl -fsS -X POST "https://tsiam.tailnet-name.ts.net/token?resource=https://api.example.com" -H "X-Tsiam: 1" | jq -r '.access_token')
 
 # Use the token
 curl -H "Authorization: Bearer $TOKEN" https://api.example.com/resource
@@ -149,7 +153,7 @@ curl -H "Authorization: Bearer $TOKEN" https://api.example.com/resource
 
 ```javascript
 async function getToken(audience) {
-  const url = new URL('https://tsiam/token');
+  const url = new URL('https://tsiam.tailnet-name.ts.net/token');
   url.searchParams.set('resource', audience);
 
   const response = await fetch(url, {
@@ -198,7 +202,7 @@ type TokenResponse struct {
 }
 
 func getToken(audience string) (string, error) {
-	u, err := url.Parse("https://tsiam/token")
+	u, err := url.Parse("https://tsiam.tailnet-name.ts.net/token")
 	if err != nil {
 		return "", err
 	}
@@ -212,15 +216,18 @@ func getToken(audience string) (string, error) {
 	}
 	req.Header.Set("X-Tsiam", "1")
 
-	client := http.DefaultClient()
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to get token: %s", resp.Status)
+	}
+
 	var tokenResp TokenResponse
-    err = json.NewDecoder(resp.Body).Decode(&tokenResp)
+	err = json.NewDecoder(resp.Body).Decode(&tokenResp)
 	if err != nil {
 		return "", err
 	}
@@ -238,8 +245,7 @@ func main() {
 	req, _ := http.NewRequest("GET", "https://api.example.com/resource", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	client := http.DefaultClient()
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		panic(err)
 	}
@@ -259,7 +265,7 @@ import requests
 
 def get_token(audience):
     response = requests.post(
-        "https://tsiam/token",
+        "https://tsiam.tailnet-name.ts.net/token",
         params={"resource": audience},
         headers={"X-Tsiam": "1"}
     )
@@ -297,7 +303,7 @@ public class TsiamClient
 
     public async Task<string> GetTokenAsync(string audience)
     {
-        var uriBuilder = new UriBuilder("https://tsiam/token");
+        var uriBuilder = new UriBuilder("https://tsiam.tailnet-name.ts.net/token");
         uriBuilder.Query = $"resource={Uri.EscapeDataString(audience)}";
 
         var request = new HttpRequestMessage(HttpMethod.Post, uriBuilder.Uri);
@@ -352,7 +358,7 @@ public class TsiamClient {
 
     public String getToken(String audience) throws Exception {
         String encodedAudience = URLEncoder.encode(audience, StandardCharsets.UTF_8);
-        String url = "https://tsiam/token?resource=" + encodedAudience;
+        String url = "https://tsiam.tailnet-name.ts.net/token?resource=" + encodedAudience;
 
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create(url))

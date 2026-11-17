@@ -137,13 +137,13 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `signingKey.azureKeyVaultKeys.vaultUrl` | string | **required** | Azure Key Vault URL (e.g. `https://myvault.vault.azure.net/`) |
+| `signingKey.azureKeyVaultKeys.vaultUrl` | string | **required** | Azure Key Vault URL, with `https://` and only the host (e.g. `https://myvault.vault.azure.net/`) |
 | `signingKey.azureKeyVaultKeys.keyName` | string | **required** | Name of the RSA key used for wrapping/unwrapping |
 | `signingKey.azureKeyVaultKeys.keyVersion` | string | latest | Version of the key used to wrap new signing keys; empty or `latest` uses the latest version |
 | `signingKey.azureKeyVaultKeys.storagePath` | string | **required** | Path to store the wrapped signing key on disk |
-| `signingKey.azureKeyVaultKeys.tenantId` | string | — | Azure AD tenant ID (uses `DefaultAzureCredential` if empty) |
-| `signingKey.azureKeyVaultKeys.clientId` | string | — | Azure AD application client ID |
-| `signingKey.azureKeyVaultKeys.clientSecret` | string | — | Azure AD application client secret |
+| `signingKey.azureKeyVaultKeys.tenantId` | string | — | Microsoft Entra ID tenant ID |
+| `signingKey.azureKeyVaultKeys.clientId` | string | — | Client ID of the application or managed identity |
+| `signingKey.azureKeyVaultKeys.clientSecret` | string | — | Client secret of the application |
 
 The wrapped signing key file records which version of the Key Vault key wrapped it, and tsiam always unwraps it with that version. After rotating the key in Key Vault, keep that version enabled, or tsiam won't be able to start.
 
@@ -151,13 +151,19 @@ The wrapped signing key file records which version of the Key Vault key wrapped 
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `signingKey.azureKeyVaultSecrets.vaultUrl` | string | **required** | Azure Key Vault URL |
+| `signingKey.azureKeyVaultSecrets.vaultUrl` | string | **required** | Azure Key Vault URL, with `https://` and only the host |
 | `signingKey.azureKeyVaultSecrets.secretName` | string | **required** | Name of the secret storing the signing key |
-| `signingKey.azureKeyVaultSecrets.tenantId` | string | — | Azure AD tenant ID |
-| `signingKey.azureKeyVaultSecrets.clientId` | string | — | Azure AD application client ID |
-| `signingKey.azureKeyVaultSecrets.clientSecret` | string | — | Azure AD application client secret |
+| `signingKey.azureKeyVaultSecrets.tenantId` | string | — | Microsoft Entra ID tenant ID |
+| `signingKey.azureKeyVaultSecrets.clientId` | string | — | Client ID of the application or managed identity |
+| `signingKey.azureKeyVaultSecrets.clientSecret` | string | — | Client secret of the application |
 
 If several tsiam instances share the same secret, start one of them first so it creates the signing key. Key Vault can't stop two instances that start at the same time from each storing a different key.
+
+**Authenticating with Azure Key Vault**: both Key Vault storages pick the credentials from `tenantId`, `clientId`, and `clientSecret`:
+
+- With `clientSecret`, tsiam authenticates as the application with that secret. `tenantId` and `clientId` are required too.
+- With `clientId` only, tsiam uses the user-assigned managed identity with that client ID. When `AZURE_FEDERATED_TOKEN_FILE` is set (as with workload identity on AKS), it uses workload identity with that client ID instead.
+- With none of them, tsiam uses [`DefaultAzureCredential`](https://learn.microsoft.com/azure/developer/go/sdk/authentication/credential-chains#defaultazurecredential-overview), which reads the credentials from the environment (including `AZURE_CLIENT_ID`), the system-assigned managed identity, workload identity, or the Azure CLI. If `tenantId` is set, it's the tenant to authenticate to.
 
 ### `logs`
 

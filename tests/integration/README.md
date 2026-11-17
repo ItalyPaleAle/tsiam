@@ -105,7 +105,7 @@ Ensure you've set the `TSIAM_URL` environment variable before running tests.
 
 ### Connection refused / timeout
 
-- Verify tsiam is running and healthy: `curl -k https://<tsiam-host>/healthz`
+- Verify tsiam is running and healthy: `curl https://<tsiam-host>.<tailnet-name>.ts.net/healthz` (use the full MagicDNS name, which tsiam's TLS certificate is valid for)
 - Ensure your machine can reach tsiam over Tailscale: `tailscale ping <tsiam-host>`
 - Check that ACLs allow traffic from your node to tsiam
 

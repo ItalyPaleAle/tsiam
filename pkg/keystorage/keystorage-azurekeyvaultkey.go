@@ -131,8 +131,9 @@ func (a *AzureKeyVaultKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 	}
 
 	// A zero-byte file is treated as missing rather than an unwrap error
+	// tsiam never writes an empty file, so this is logged as a warning: the new key has a different ID, and tokens signed with the old key stop working
 	if len(data) == 0 {
-		slog.DebugContext(ctx, "Ignoring empty wrapped signing key file in Azure Key Vault key storage", slog.String("path", a.storagePath))
+		slog.WarnContext(ctx, "Wrapped signing key file is empty, so a new signing key is generated and replaces it", slog.String("path", a.storagePath))
 		return nil, errKeyNoExist
 	}
 

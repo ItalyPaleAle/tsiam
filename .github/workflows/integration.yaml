@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -59,6 +61,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Exchange GitHub OIDC token for Tailscale access token
         if: matrix.auth_mode == 'authkey'
@@ -95,10 +99,12 @@ jobs:
       - name: Generate auth key for tsiam
         if: matrix.auth_mode == 'authkey'
         id: authkey
+        env:
+          TS_ACCESS_TOKEN: ${{ steps.tailscale_token.outputs.token }}
         run: |
           # Generate an ephemeral auth key for tsiam using the Tailscale API
           AUTH_KEY=$(curl -sS -X POST "https://api.tailscale.com/api/v2/tailnet/-/keys" \
-            -H "Authorization: Bearer ${{ steps.tailscale_token.outputs.token }}" \
+            -H "Authorization: Bearer ${TS_ACCESS_TOKEN}" \
             -H "Content-Type: application/json" \
             -d '{
               "capabilities": {
@@ -123,51 +129,40 @@ jobs:
           echo "key=$AUTH_KEY" >> "$GITHUB_OUTPUT"
 
       - name: Create tsiam config
+        env:
+          AUTH_MODE: ${{ matrix.auth_mode }}
+          RUN_ID: ${{ github.run_id }}
+          TS_AUTH_KEY: ${{ steps.authkey.outputs.key }}
         run: |
-          mkdir -p /tmp/tsiam-tsnet-${{ matrix.auth_mode }}
+          STATE_DIR="/tmp/tsiam-tsnet-${AUTH_MODE}"
+          mkdir -p "${STATE_DIR}"
 
-          if [ "${{ matrix.auth_mode }}" = "authkey" ]; then
-            cat > /tmp/tsiam-config.yaml << 'EOF'
-          tsnet:
-            hostname: tsiam-ci-${{ github.run_id }}-${{ matrix.auth_mode }}
-            authKey: ${{ steps.authkey.outputs.key }}
-            stateDir: /tmp/tsiam-tsnet-${{ matrix.auth_mode }}
-            ephemeral: true
-            advertiseTags:
-              - tag:tsiam-ci
-          logs:
-            level: debug
-            json: true
-          tokens:
-            lifetime: 5m
-            allowedAudiences:
-              - "https://test.example.com"
-            allowEmptyNodeCapability: true
-          signingKey:
-            storage: memory
-            algorithm: ES256
-          EOF
-          else
-            cat > /tmp/tsiam-config.yaml << 'EOF'
-          tsnet:
-            hostname: tsiam-ci-${{ github.run_id }}-${{ matrix.auth_mode }}
-            stateDir: /tmp/tsiam-tsnet-${{ matrix.auth_mode }}
-            ephemeral: true
-            advertiseTags:
-              - tag:tsiam-ci
-          logs:
-            level: debug
-            json: true
-          tokens:
-            lifetime: 5m
-            allowedAudiences:
-              - "https://test.example.com"
-            allowEmptyNodeCapability: true
-          signingKey:
-            storage: memory
-            algorithm: ES256
-          EOF
+          # Only the authkey mode sets an auth key: in the federation mode, tsiam gets its credentials from environment variables when it starts
+          AUTH_KEY_LINE=""
+          if [ "${AUTH_MODE}" = "authkey" ]; then
+            AUTH_KEY_LINE="  authKey: ${TS_AUTH_KEY}"
           fi
+
+          cat > /tmp/tsiam-config.yaml << EOF
+          tsnet:
+            hostname: tsiam-ci-${RUN_ID}-${AUTH_MODE}
+          ${AUTH_KEY_LINE}
+            stateDir: ${STATE_DIR}
+            ephemeral: true
+            advertiseTags:
+              - tag:tsiam-ci
+          logs:
+            level: debug
+            json: true
+          tokens:
+            lifetime: 5m
+            allowedAudiences:
+              - "https://test.example.com"
+            allowEmptyNodeCapability: true
+          signingKey:
+            storage: memory
+            algorithm: ES256
+          EOF
 
       - name: Connect runner to Tailscale
         uses: tailscale/github-action@780049a30b6ff5c378a9e7b389d15ece7a204888 # v4.1.3
@@ -189,8 +184,10 @@ jobs:
           path: /tmp
 
       - name: Start tsiam
+        env:
+          AUTH_MODE: ${{ matrix.auth_mode }}
         run: |
-          if [ "${{ matrix.auth_mode }}" = "federation" ]; then
+          if [ "${AUTH_MODE}" = "federation" ]; then
             # Direct federation path in tsnet requires client ID + audience (or ID token),
             # and tags. preauthorized=true avoids a manual machine-approval step in CI.
             export TS_CLIENT_ID="${TS_OAUTH_CLIENT_ID}?preauthorized=true&ephemeral=true"
@@ -198,12 +195,15 @@ jobs:
           fi
 
           chmod +x /tmp/tsiam
-          TSIAM_CONFIG=/tmp/tsiam-config.yaml /tmp/tsiam > "$RUNNER_TEMP/tsiam-${{ matrix.auth_mode }}.log" 2>&1 &
+          TSIAM_CONFIG=/tmp/tsiam-config.yaml /tmp/tsiam > "$RUNNER_TEMP/tsiam-${AUTH_MODE}.log" 2>&1 &
           echo "TSIAM_PID=$!" >> $GITHUB_ENV
 
       - name: Wait for tsiam to be reachable
+        env:
+          AUTH_MODE: ${{ matrix.auth_mode }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          TSIAM_HOST="tsiam-ci-${{ github.run_id }}-${{ matrix.auth_mode }}"
+          TSIAM_HOST="tsiam-ci-${RUN_ID}-${AUTH_MODE}"
 
           # First, wait for the node to appear in Tailscale
           echo "Waiting for tsiam node to join Tailscale..."
@@ -249,9 +249,10 @@ jobs:
         run: kill $TSIAM_PID 2>/dev/null || true
 
       - name: Upload tsiam logs
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tsiam-logs-${{ matrix.auth_mode }}
           path: ${{ runner.temp }}/tsiam-${{ matrix.auth_mode }}.log
           if-no-files-found: warn
+          retention-days: 3

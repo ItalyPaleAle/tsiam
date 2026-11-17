@@ -209,3 +209,109 @@ func TestValidateAzureKeyVaultKeysKeyVersion(t *testing.T) {
 		assert.NotContains(t, buf.String(), "keyVersion")
 	})
 }
+
+func TestValidateAzureKeyVault(t *testing.T) {
+	newKeysConfig := func(vaultURL string) *Config {
+		c := newValidConfig()
+		c.SigningKey.Storage = "AzureKeyVaultKeys"
+		c.SigningKey.AzureKeyVaultKeys = &ConfigStorageAzureKeyVaultKeys{
+			VaultURL:    vaultURL,
+			KeyName:     "tsiam",
+			KeyVersion:  "0123456789abcdef0123456789abcdef",
+			StoragePath: "/data/signing-key.json",
+		}
+		return c
+	}
+	newSecretsConfig := func(vaultURL string) *Config {
+		c := newValidConfig()
+		c.SigningKey.Storage = "AzureKeyVaultSecrets"
+		c.SigningKey.AzureKeyVaultSecrets = &ConfigStorageAzureKeyVaultSecrets{
+			VaultURL:   vaultURL,
+			SecretName: "tsiam",
+		}
+		return c
+	}
+
+	validURLs := []string{
+		"https://myvault.vault.azure.net/",
+		"https://myvault.vault.azure.net",
+		"https://myvault.vault.azure.net:443/",
+		"HTTPS://myvault.vault.azure.net/",
+	}
+	for _, vaultURL := range validURLs {
+		t.Run("accepts vault URL "+vaultURL, func(t *testing.T) {
+			err := newKeysConfig(vaultURL).Validate(slog.Default())
+			require.NoError(t, err)
+
+			err = newSecretsConfig(vaultURL).Validate(slog.Default())
+			require.NoError(t, err)
+		})
+	}
+
+	invalidURLs := []string{
+		"http://myvault.vault.azure.net/",
+		"myvault.vault.azure.net",
+		"https://",
+		"https:myvault.vault.azure.net",
+		"https://user:pass@myvault.vault.azure.net/",
+		"https://myvault.vault.azure.net/keys/tsiam",
+		"https://myvault.vault.azure.net/?api-version=7.4",
+		"https://myvault.vault.azure.net/?",
+		"https://myvault.vault.azure.net/#frag",
+		"https://myvault.vault.azure.net:abc/",
+	}
+	for _, vaultURL := range invalidURLs {
+		t.Run("rejects vault URL "+vaultURL, func(t *testing.T) {
+			err := newKeysConfig(vaultURL).Validate(slog.Default())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "signingKey.azureKeyVaultKeys.vaultUrl")
+
+			err = newSecretsConfig(vaultURL).Validate(slog.Default())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "signingKey.azureKeyVaultSecrets.vaultUrl")
+		})
+	}
+
+	credentials := []struct {
+		name         string
+		tenantID     string
+		clientID     string
+		clientSecret string
+		valid        bool
+	}{
+		{name: "no credentials", valid: true},
+		{name: "client secret with tenant and client IDs", tenantID: "tenant", clientID: "client", clientSecret: "secret", valid: true},
+		{name: "client ID only", clientID: "client", valid: true},
+		{name: "tenant ID only", tenantID: "tenant", valid: true},
+		{name: "tenant and client IDs", tenantID: "tenant", clientID: "client", valid: true},
+		{name: "client secret only", clientSecret: "secret"},
+		{name: "client secret without tenant ID", clientID: "client", clientSecret: "secret"},
+		{name: "client secret without client ID", tenantID: "tenant", clientSecret: "secret"},
+	}
+	for _, tt := range credentials {
+		t.Run(tt.name, func(t *testing.T) {
+			keys := newKeysConfig("https://myvault.vault.azure.net/")
+			keys.SigningKey.AzureKeyVaultKeys.TenantID = tt.tenantID
+			keys.SigningKey.AzureKeyVaultKeys.ClientID = tt.clientID
+			keys.SigningKey.AzureKeyVaultKeys.ClientSecret = tt.clientSecret
+
+			secrets := newSecretsConfig("https://myvault.vault.azure.net/")
+			secrets.SigningKey.AzureKeyVaultSecrets.TenantID = tt.tenantID
+			secrets.SigningKey.AzureKeyVaultSecrets.ClientID = tt.clientID
+			secrets.SigningKey.AzureKeyVaultSecrets.ClientSecret = tt.clientSecret
+
+			keysErr := keys.Validate(slog.Default())
+			secretsErr := secrets.Validate(slog.Default())
+			if tt.valid {
+				require.NoError(t, keysErr)
+				require.NoError(t, secretsErr)
+				return
+			}
+
+			require.Error(t, keysErr)
+			assert.Contains(t, keysErr.Error(), "signingKey.azureKeyVaultKeys.clientSecret")
+			require.Error(t, secretsErr)
+			assert.Contains(t, secretsErr.Error(), "signingKey.azureKeyVaultSecrets.clientSecret")
+		})
+	}
+}

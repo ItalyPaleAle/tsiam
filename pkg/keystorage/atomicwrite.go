@@ -6,12 +6,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // File mode used by keystorage backends when persisting (wrapped or unwrapped) signing-key material
 const keyFileMode os.FileMode = 0600
 
-// Writes data to path atomically (by creating a temp file in the same directory, fsyncing it, then renaming over the destination)
+// Writes data to path atomically (by creating a temp file in the same directory, fsyncing it, renaming it over the destination, then fsyncing the directory)
 // On failure mid-write the temp file is removed and the destination is left untouched, so a torn write cannot leave an unparseable key file on disk
 // The final file mode is keyFileMode (0600)
 func writeFileAtomic(path string, data []byte) error {
@@ -25,6 +26,8 @@ func writeFileAtomic(path string, data []byte) error {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to rename temp file into place: %w", err)
 	}
+
+	syncDir(filepath.Dir(path))
 
 	return nil
 }
@@ -45,6 +48,7 @@ func writeFileExclusive(path string, data []byte) error {
 
 	linkErr := os.Link(tmpPath, path)
 	if linkErr == nil {
+		syncDir(filepath.Dir(path))
 		return nil
 	}
 
@@ -65,6 +69,8 @@ func writeFileExclusive(path string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to rename temp file into place: %w", err)
 	}
+
+	syncDir(filepath.Dir(path))
 
 	return nil
 }
@@ -87,7 +93,9 @@ func writeTempFile(path string, data []byte) (tmpPath string, err error) {
 		}
 	}()
 
-	err = os.Chmod(tmpPath, keyFileMode)
+	// Change the mode through the open file, and not its path, which another user with write access to the directory could replace with a symlink
+	// CreateTemp already uses 0600, but the umask could have removed some bits
+	err = f.Chmod(keyFileMode)
 	if err != nil {
 		return "", fmt.Errorf("failed to chmod temp file: %w", err)
 	}
@@ -108,4 +116,20 @@ func writeTempFile(path string, data []byte) (tmpPath string, err error) {
 	}
 
 	return tmpPath, nil
+}
+
+// Syncs the directory, so the entry for a file that was just renamed or linked into it survives a crash or power loss
+// This is best-effort: the file is already in place, and some filesystems don't support syncing directories
+func syncDir(dir string) {
+	// Windows can't open directories as files
+	if runtime.GOOS == "windows" {
+		return
+	}
+
+	d, err := os.Open(dir) // #nosec G304 -- The directory of the key file, which is set in the configuration
+	if err != nil {
+		return
+	}
+	_ = d.Sync()
+	_ = d.Close()
 }

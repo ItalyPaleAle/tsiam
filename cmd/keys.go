@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
@@ -132,10 +133,11 @@ func getAzureKeyVaultCredentials(tenantId string, clientId string, clientSecret 
 			Disabled: true,
 		},
 	}
-	if tenantId != "" && clientId != "" && clientSecret != "" {
-		slog.Debug("Initializing Azure Key Vault with client secret credentials")
 
-		// Use client credentials
+	switch {
+	case clientSecret != "":
+		// Config validation makes sure that the tenant and client IDs are set too
+		slog.Info("Authenticating with Azure Key Vault using a client secret", slog.String("tenantId", tenantId), slog.String("clientId", clientId))
 		creds, err := azidentity.NewClientSecretCredential(tenantId, clientId, clientSecret, &azidentity.ClientSecretCredentialOptions{
 			ClientOptions: clientOpts,
 		})
@@ -143,16 +145,42 @@ func getAzureKeyVaultCredentials(tenantId string, clientId string, clientSecret 
 			return nil, fmt.Errorf("failed to create client secret credential object: %w", err)
 		}
 		return creds, nil
-	}
 
-	// Use the default credentials
-	slog.Debug("Initializing Azure Key Vault with default credentials")
+	case clientId != "":
+		// DefaultAzureCredential only reads the client ID from the AZURE_CLIENT_ID environment variable, so a client ID in the config needs its own credential
+		// The AKS workload identity webhook sets AZURE_FEDERATED_TOKEN_FILE, and everywhere else the client ID selects a user-assigned managed identity
+		if os.Getenv("AZURE_FEDERATED_TOKEN_FILE") != "" {
+			slog.Info("Authenticating with Azure Key Vault using workload identity", slog.String("tenantId", tenantId), slog.String("clientId", clientId))
+			creds, err := azidentity.NewWorkloadIdentityCredential(&azidentity.WorkloadIdentityCredentialOptions{
+				ClientOptions: clientOpts,
+				ClientID:      clientId,
+				TenantID:      tenantId,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create workload identity credential object: %w", err)
+			}
+			return creds, nil
+		}
 
-	creds, err := azidentity.NewDefaultAzureCredential(&azidentity.DefaultAzureCredentialOptions{
-		ClientOptions: clientOpts,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create default credential object: %w", err)
+		slog.Info("Authenticating with Azure Key Vault using a user-assigned managed identity", slog.String("clientId", clientId))
+		creds, err := azidentity.NewManagedIdentityCredential(&azidentity.ManagedIdentityCredentialOptions{
+			ClientOptions: clientOpts,
+			ID:            azidentity.ClientID(clientId),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create managed identity credential object: %w", err)
+		}
+		return creds, nil
+
+	default:
+		slog.Info("Authenticating with Azure Key Vault using the default Azure credentials", slog.String("tenantId", tenantId))
+		creds, err := azidentity.NewDefaultAzureCredential(&azidentity.DefaultAzureCredentialOptions{
+			ClientOptions: clientOpts,
+			TenantID:      tenantId,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create default credential object: %w", err)
+		}
+		return creds, nil
 	}
-	return creds, nil
 }

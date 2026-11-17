@@ -233,12 +233,15 @@ func TestAzureKeyVaultKeyStorage_LoadNonExistent(t *testing.T) {
 	require.ErrorIs(t, err, errKeyNoExist)
 	require.Nil(t, key)
 
-	// An empty file is treated as missing
+	// An empty file is treated as missing, with a warning since a new key replaces it
+	logs := captureLogs(t)
 	err = os.WriteFile(storage.storagePath, nil, 0600)
 	require.NoError(t, err)
 	key, err = storage.Load(t.Context())
 	require.ErrorIs(t, err, errKeyNoExist)
 	require.Nil(t, key)
+	assert.Contains(t, logs.String(), "level=WARN")
+	assert.Contains(t, logs.String(), "Wrapped signing key file is empty")
 
 	assert.Empty(t, kv.unwrapVersions, "Key Vault should not be called")
 }
