@@ -1,9 +1,11 @@
 package config
 
 import (
+	"os"
 	"time"
 
 	configkit "github.com/italypaleale/go-kit/config"
+	"github.com/mattn/go-isatty"
 
 	"github.com/italypaleale/tsiam/pkg/buildinfo"
 )
@@ -38,6 +40,7 @@ func GetDefaultConfig() *Config {
 		Logs: ConfigLogs{
 			Level:            "info",
 			OmitHealthChecks: true,
+			JSON:             !isTerminal(os.Stdout),
 		},
 		Tokens: ConfigTokens{
 			Lifetime:           5 * time.Minute,
@@ -54,4 +57,10 @@ func GetDefaultConfig() *Config {
 		},
 		Dev: defaultDevConfig,
 	}
+}
+
+// Returns true if f is a terminal
+func isTerminal(f *os.File) bool {
+	fd := f.Fd()
+	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
 }

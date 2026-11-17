@@ -151,6 +151,9 @@ func main() {
 		StateDir:      cfg.GetTSNetStateDir(),
 		Ephemeral:     cfg.TSNet.Ephemeral,
 		AdvertiseTags: cfg.TSNet.AdvertiseTags,
+
+		// tsnet's internal logs are verbose, so they're only included with the debug log level
+		DebugLogging: strings.EqualFold(cfg.Logs.Level, "debug"),
 	})
 	tsnetCancel()
 	if err != nil {

@@ -16,13 +16,16 @@ import (
 const prefix = "tsiam"
 
 type AppMetrics struct {
-	auths api.Int64Counter
+	auths           api.Int64Counter
+	includeNodeName bool
 }
 
 func NewAppMetrics(ctx context.Context) (m *AppMetrics, shutdownFn func(ctx context.Context) error, err error) {
 	cfg := config.Get()
 
-	m = &AppMetrics{}
+	m = &AppMetrics{
+		includeNodeName: cfg.Metrics.IncludeNodeName,
+	}
 
 	meter, shutdownFn, err := observability.InitMetrics(ctx, observability.InitMetricsOpts{
 		Config:  cfg,
@@ -33,9 +36,11 @@ func NewAppMetrics(ctx context.Context) (m *AppMetrics, shutdownFn func(ctx cont
 		return nil, nil, fmt.Errorf("failed to init metrics: %w", err)
 	}
 
+	// The meter provider is running from here on, so it's shut down if the rest of the initialization fails
 	// Runtime instrumentation for Go runtime metrics
 	err = runtime.Start()
 	if err != nil {
+		_ = shutdownFn(ctx)
 		return nil, nil, fmt.Errorf("failed to start runtime instrumentation: %w", err)
 	}
 
@@ -45,6 +50,7 @@ func NewAppMetrics(ctx context.Context) (m *AppMetrics, shutdownFn func(ctx cont
 		api.WithDescription("The number of authentications"),
 	)
 	if err != nil {
+		_ = shutdownFn(ctx)
 		return nil, nil, fmt.Errorf("failed to create "+prefix+"_auths meter: %w", err)
 	}
 
@@ -57,14 +63,15 @@ func (m *AppMetrics) RecordAuth(ctx context.Context, nodeName string, audience s
 		return
 	}
 
+	attrs := make([]attribute.KeyValue, 0, 2)
+	attrs = append(attrs, attribute.String("endpoint", audience))
+	if m.includeNodeName {
+		attrs = append(attrs, attribute.String("node", nodeName))
+	}
+
 	m.auths.Add(
 		context.WithoutCancel(ctx),
 		1,
-		api.WithAttributeSet(
-			attribute.NewSet(
-				attribute.KeyValue{Key: "node", Value: attribute.StringValue(nodeName)},
-				attribute.KeyValue{Key: "endpoint", Value: attribute.StringValue(audience)},
-			),
-		),
+		api.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 }

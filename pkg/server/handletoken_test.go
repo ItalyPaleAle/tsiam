@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -692,4 +693,30 @@ func mustAlg(t *testing.T, s *Server) jwa.KeyAlgorithm {
 	alg, ok := s.signingKey.Algorithm()
 	require.True(t, ok, "test signing key must have an algorithm set")
 	return alg
+}
+
+func TestHandlePostToken_AuditLogIncludesSubject(t *testing.T) {
+	s, restore := newTestServer(t, func(c *config.Config) {
+		c.Tokens.SubjectClaim = config.SubjectClaimCapability
+	}, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+		whois := defaultWhois()
+		whois.CapMap[tsnet.AudienceCapability] = []tailcfg.RawMessage{
+			tailcfg.RawMessage(`{"allowedAudiences":["` + testAudience + `"],"subject":"worker-fleet"}`),
+		}
+		return whois, nil
+	})
+	defer restore()
+
+	var logs strings.Builder
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prevLogger) })
+
+	rr := postToken(t, s, "?resource="+testAudience)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	// The subject isn't the node ID here, so the log needs both to match the token with the node
+	assert.Contains(t, logs.String(), `msg="Token issued"`)
+	assert.Contains(t, logs.String(), "subject=worker-fleet")
+	assert.Contains(t, logs.String(), "nodeId="+testWhoisNode)
 }

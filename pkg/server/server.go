@@ -133,14 +133,22 @@ func (s *Server) initAppServer() {
 
 	// httpserver.Use wraps the handler with each middleware in turn, so the first middleware listed is the innermost and the last one runs first
 	middlewares := []httpserver.Middleware{
-		// Recover from panics in handlers
-		sloghttp.Recovery,
+		// Recover from panics in handlers, inside logging and tracing so the panic's log has the request's trace
+		httpserver.MiddlewareRecoverPanics(errInternal),
 		// Wrap r.Body with MaxBytesReader as a backstop against chunked / no-Content-Length attacks that bypass the upfront check, in case a future handler does read the body
 		httpserver.MiddlewareMaxBodySize(maxBodySize),
+		// Record the IP of Funnel clients in the request's span and log, which otherwise only show the Tailscale relay
+		annotateFunnelClient,
 		// Log requests
 		sloghttp.NewWithFilters(slog.Default(), filters...),
 		// Wrap with OpenTelemetry HTTP instrumentation for metrics and tracing
-		otelhttp.NewMiddleware("server", otelhttp.WithServerName(net.JoinHostPort(s.hostname(), "443"))),
+		// Funnel clients are unauthenticated, so their requests start a new trace that only links the caller's: otherwise they could choose the trace ID, and turn sampling off or force it
+		otelhttp.NewMiddleware("server",
+			otelhttp.WithServerName(net.JoinHostPort(s.hostname(), "443")),
+			otelhttp.WithPublicEndpointFn(isFunneledRequest),
+		),
+		// Clients could set this header to choose the address that otelhttp records in traces
+		removeForwardedFor,
 		// Only the public endpoints are reachable over Funnel, and Funnel requests are rate-limited before they're logged or traced
 		// It has its own limiter, because sharing the routes' limiter would count allowed Funnel requests twice
 		requireFunnelAllowed(rateLimit(publicRateLimitPerSecond, time.Second)),
@@ -151,7 +159,7 @@ func (s *Server) initAppServer() {
 		// Set on every response, including errors returned by the middlewares above
 		setNoSniff,
 		// Recover from panics in the middlewares above
-		sloghttp.Recovery,
+		httpserver.MiddlewareRecoverPanics(errInternal),
 	}
 
 	// Add middlewares

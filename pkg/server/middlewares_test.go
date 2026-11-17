@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -18,8 +19,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace/noop"
 	"tailscale.com/net/tsaddr"
 
 	"github.com/italypaleale/tsiam/pkg/config"
@@ -986,4 +992,134 @@ func TestValidateNoBrowser(t *testing.T) {
 			require.ErrorContains(t, err, "found browser header '"+h+"'")
 		})
 	}
+}
+
+// Trace context sent by the caller in the tests, with the sampled flag off
+const (
+	callerTraceID     = "4bf92f3577b34da6a3ce929d0e0e4736"
+	callerTraceparent = "00-" + callerTraceID + "-00f067aa0ba902b7-00"
+)
+
+// Builds a server whose middlewares record spans and logs, which otelhttp and sloghttp read from the globals when the middlewares are created
+func newTelemetryTestServer(t *testing.T) (s *Server, spans *tracetest.SpanRecorder, logs *strings.Builder) {
+	t.Helper()
+
+	spans = tracetest.NewSpanRecorder()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans)))
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	logs = &strings.Builder{}
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(logs, nil)))
+
+	t.Cleanup(func() {
+		otel.SetTracerProvider(noop.NewTracerProvider())
+		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator())
+		slog.SetDefault(prevLogger)
+	})
+
+	s, restore := newTestServer(t, nil, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+		return defaultWhois(), nil
+	})
+	t.Cleanup(restore)
+	s.initAppServer()
+
+	return s, spans, logs
+}
+
+// Returns the only span that was recorded
+func onlySpan(t *testing.T, spans *tracetest.SpanRecorder) sdktrace.ReadOnlySpan {
+	t.Helper()
+	ended := spans.Ended()
+	require.Len(t, ended, 1)
+	return ended[0]
+}
+
+// Returns the value of a span attribute, or an empty string if it's not set
+func spanAttr(span sdktrace.ReadOnlySpan, key attribute.Key) string {
+	for _, kv := range span.Attributes() {
+		if kv.Key == key {
+			return kv.Value.AsString()
+		}
+	}
+	return ""
+}
+
+func TestTelemetry(t *testing.T) {
+	newRequest := func(t *testing.T, path string) *http.Request {
+		t.Helper()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://"+testHostname+path, nil)
+		req.RemoteAddr = "100.64.0.1:4321"
+		req.Header.Set("Traceparent", callerTraceparent)
+		req.Header.Set("X-Forwarded-For", "198.51.100.7")
+		return req
+	}
+
+	t.Run("Tailnet requests continue the caller's trace and ignore X-Forwarded-For", func(t *testing.T) {
+		s, spans, _ := newTelemetryTestServer(t)
+
+		rr := httptest.NewRecorder()
+		s.handler.ServeHTTP(rr, newRequest(t, "/healthz"))
+		require.Equal(t, http.StatusNoContent, rr.Code)
+
+		// With the sampled flag off in the caller's trace context, the default sampler doesn't record the span
+		assert.Empty(t, spans.Ended())
+
+		// With the flag on, the span is part of the caller's trace
+		req := newRequest(t, "/healthz")
+		req.Header.Set("Traceparent", strings.TrimSuffix(callerTraceparent, "00")+"01")
+		s.handler.ServeHTTP(httptest.NewRecorder(), req)
+
+		span := onlySpan(t, spans)
+		assert.Equal(t, callerTraceID, span.SpanContext().TraceID().String())
+		assert.Equal(t, "100.64.0.1", spanAttr(span, "client.address"))
+	})
+
+	t.Run("Funnel requests start a new trace and record the client's IP", func(t *testing.T) {
+		prevFunneled, prevIP := isFunneledRequest, funnelClientIP
+		isFunneledRequest = func(*http.Request) bool { return true }
+		funnelClientIP = func(*http.Request) string { return "203.0.113.9" }
+		t.Cleanup(func() { isFunneledRequest, funnelClientIP = prevFunneled, prevIP })
+
+		s, spans, logs := newTelemetryTestServer(t)
+
+		rr := httptest.NewRecorder()
+		s.handler.ServeHTTP(rr, newRequest(t, "/.well-known/jwks.json"))
+		require.Equal(t, http.StatusOK, rr.Code)
+
+		// The span is recorded even though the caller turned sampling off, because it's not part of the caller's trace
+		span := onlySpan(t, spans)
+		assert.NotEqual(t, callerTraceID, span.SpanContext().TraceID().String())
+		assert.False(t, span.Parent().IsValid())
+
+		// The caller's span is only linked
+		links := span.Links()
+		require.Len(t, links, 1)
+		assert.Equal(t, callerTraceID, links[0].SpanContext.TraceID().String())
+
+		// The span and the request log have the client's IP instead of the Tailscale relay
+		assert.Equal(t, "203.0.113.9", spanAttr(span, "client.address"))
+		assert.Contains(t, logs.String(), "funnelClientIp=203.0.113.9")
+	})
+}
+
+func TestPanicsAreLogged(t *testing.T) {
+	t.Run("Panics are logged and the client gets an internal error", func(t *testing.T) {
+		s, _, logs := newTelemetryTestServer(t)
+		s.whoIs = func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
+			panic("simulated panic")
+		}
+
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://"+testHostname+"/token?resource="+testAudience, nil)
+		req.Header.Set(tsiamHeaderName, "1")
+		rr := httptest.NewRecorder()
+		s.handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
+		assert.Contains(t, rr.Body.String(), `"internal"`)
+		assert.Contains(t, logs.String(), "level=ERROR")
+		assert.Contains(t, logs.String(), "Panic while handling the request")
+		assert.Contains(t, logs.String(), "simulated panic")
+		assert.Contains(t, logs.String(), "stack=")
+	})
 }

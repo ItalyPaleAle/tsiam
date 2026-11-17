@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -11,6 +12,9 @@ import (
 	"time"
 
 	"github.com/go-chi/httprate"
+	sloghttp "github.com/samber/slog-http"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
 	"tailscale.com/net/tsaddr"
 
 	"github.com/italypaleale/go-kit/httpserver"
@@ -269,4 +273,29 @@ func validateNoBrowser(r *http.Request) error {
 	}
 
 	return nil
+}
+
+// Removes the X-Forwarded-For header, which otelhttp would use as the client's address in traces
+// tsiam is reached directly through tsnet, never through a proxy that sets the header, so any value comes from the client itself
+func removeForwardedFor(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Del("X-Forwarded-For")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Records the IP of Funnel clients in the request's span and log
+// For Funnel requests, the connection's address is the Tailscale relay, so traces and logs would otherwise only show the relay
+// It must run inside otelhttp and sloghttp, which create the span and the log attributes that it updates
+func annotateFunnelClient(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := funnelClientIP(r)
+		if ip != "" {
+			// otelhttp sets client.address from the connection when the span starts, so this replaces it
+			trace.SpanFromContext(r.Context()).SetAttributes(semconv.ClientAddress(ip))
+			sloghttp.AddCustomAttributes(r, slog.String("funnelClientIp", ip))
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

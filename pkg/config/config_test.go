@@ -2,6 +2,7 @@ package config
 
 import (
 	"log/slog"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -314,4 +315,19 @@ func TestValidateAzureKeyVault(t *testing.T) {
 			assert.Contains(t, secretsErr.Error(), "signingKey.azureKeyVaultSecrets.clientSecret")
 		})
 	}
+}
+
+func TestLogsJSONDefault(t *testing.T) {
+	t.Run("a pipe is not a terminal", func(t *testing.T) {
+		r, w, err := os.Pipe()
+		require.NoError(t, err)
+		defer func() { _ = r.Close() }()
+		defer func() { _ = w.Close() }()
+
+		assert.False(t, isTerminal(w))
+	})
+
+	t.Run("logs are JSON when stdout isn't a terminal", func(t *testing.T) {
+		assert.Equal(t, !isTerminal(os.Stdout), GetDefaultConfig().Logs.JSON)
+	})
 }

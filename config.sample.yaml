@@ -84,8 +84,16 @@ logs:
   ## logs.json (boolean)
   ## Description:
   ##   If true, emits logs formatted as JSON, otherwise uses a text-based structured log format.
-  ##   Defaults to false if a TTY is attached (e.g. when running the binary directly in the terminal or in development), true otherwise.
+  ##   Defaults to false if a TTY is attached (e.g. when running the binary directly in the terminal or in development), true otherwise (e.g. in containers).
   #json: false
+
+metrics:
+  ## metrics.includeNodeName (boolean)
+  ## Description:
+  ##   If true, the `tsiam_auths` metric includes the name of the node that requested each token, in the `node` attribute.
+  ##   Each node name creates a new time series, so only enable it when the set of nodes is small and stable
+  ## Default: false
+  #includeNodeName: false
 
 tokens:
   ## tokens.lifetime (duration)

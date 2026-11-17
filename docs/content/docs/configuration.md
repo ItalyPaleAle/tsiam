@@ -102,10 +102,10 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `tokens.lifetime` | duration | `"5m"` | Token lifetime (minimum: 1m, maximum: 1h) |
-| `tokens.allowedAudiences` | list | **required** | Audiences that can be requested; only these values will be issued |
+| `tokens.allowedAudiences` | list | **required** | Audiences that can be requested - only these values will be issued |
 | `tokens.allowEmptyNodeCapability` | boolean | `false` | If true, nodes without an explicit ACL capability grant can request any globally-allowed audience |
 | `tokens.subjectClaim` | string | `"nodeId"` | Value to use for the JWT `sub` claim — see below |
-| `tokens.claimName` | string | `"italypaleale.me/tsiam"` | Name of the custom claim that carries the caller's Tailscale identity; changing it breaks existing relying-party mappings — see [JWT claims](/docs/getting-a-token#jwt-claims) |
+| `tokens.claimName` | string | `"italypaleale.me/tsiam"` | Name of the custom claim that carries the caller's Tailscale identity. Changing it breaks existing relying-party mappings — see [JWT claims](/docs/getting-a-token#jwt-claims) |
 | `tokens.includeCapabilities` | boolean | `false` | If true, the identity claim includes the caller's tsiam capability grants under `capMap`, readable by every relying party — see [JWT claims](/docs/getting-a-token#jwt-claims) |
 
 #### `tokens.subjectClaim` values
@@ -139,7 +139,7 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 | --- | --- | --- | --- |
 | `signingKey.azureKeyVaultKeys.vaultUrl` | string | **required** | Azure Key Vault URL, with `https://` and only the host (e.g. `https://myvault.vault.azure.net/`) |
 | `signingKey.azureKeyVaultKeys.keyName` | string | **required** | Name of the RSA key used for wrapping/unwrapping |
-| `signingKey.azureKeyVaultKeys.keyVersion` | string | latest | Version of the key used to wrap new signing keys; empty or `latest` uses the latest version |
+| `signingKey.azureKeyVaultKeys.keyVersion` | string | latest | Version of the key used to wrap new signing keys - empty or `latest` uses the latest version |
 | `signingKey.azureKeyVaultKeys.storagePath` | string | **required** | Path to store the wrapped signing key on disk |
 | `signingKey.azureKeyVaultKeys.tenantId` | string | — | Microsoft Entra ID tenant ID |
 | `signingKey.azureKeyVaultKeys.clientId` | string | — | Client ID of the application or managed identity |
@@ -172,3 +172,11 @@ If several tsiam instances share the same secret, start one of them first so it 
 | `logs.level` | string | `"info"` | Log level: `debug`, `info`, `warn`, `error` |
 | `logs.omitHealthChecks` | boolean | `true` | Suppress log lines for `/healthz` requests |
 | `logs.json` | boolean | auto | Emit JSON-formatted logs (defaults to `true` when no TTY is attached) |
+
+### `metrics`
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `metrics.includeNodeName` | boolean | `false` | Add the name of the node that requested each token to the `tsiam_auths` metric, in the `node` attribute. Every node name creates a new time series, so don't enable it on tailnets with ephemeral nodes |
+
+See [Observability](/docs/observability) for exporting logs, metrics, and traces.

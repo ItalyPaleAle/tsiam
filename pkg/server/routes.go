@@ -181,6 +181,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 	// Log successful token issuance
 	slog.InfoContext(r.Context(), "Token issued",
 		slog.String("jti", token.JTI),
+		slog.String("subject", subject),
 		slog.String("nodeId", whois.NodeID),
 		slog.String("nodeName", whois.Name),
 		slog.String("userLogin", whois.UserLoginName),

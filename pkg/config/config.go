@@ -25,6 +25,9 @@ type Config struct {
 	// Logs contains configuration for logging
 	Logs ConfigLogs `yaml:"logs"`
 
+	// Metrics contains configuration for metrics
+	Metrics ConfigMetrics `yaml:"metrics"`
+
 	// Tokens contains configuration for tokens
 	Tokens ConfigTokens `yaml:"tokens"`
 
@@ -50,8 +53,16 @@ type ConfigLogs struct {
 	OmitHealthChecks bool `yaml:"omitHealthChecks"`
 
 	// If true, emits logs formatted as JSON, otherwise uses a text-based structured log format.
-	// Defaults to false if a TTY is attached (e.g. when running the binary directly in the terminal or in development), true otherwise.
+	// Defaults to false if a TTY is attached (e.g. when running the binary directly in the terminal or in development), true otherwise (e.g. in containers).
 	JSON bool `yaml:"json"`
+}
+
+// ConfigMetrics represents metrics configuration
+type ConfigMetrics struct {
+	// If true, the `tsiam_auths` metric includes the name of the node that requested each token, in the `node` attribute.
+	// Each node name creates a new time series, so only enable it when the set of nodes is small and stable
+	// +default false
+	IncludeNodeName bool `yaml:"includeNodeName"`
 }
 
 // Validate returns an error if the log level isn't valid
