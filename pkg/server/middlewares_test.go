@@ -39,7 +39,6 @@ func TestTokenRateLimit(t *testing.T) {
 			called++
 			w.WriteHeader(http.StatusOK)
 		})
-		// Hammer many requests from the same IP; none should be rejected
 		for range 50 {
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", nil)
 			req.RemoteAddr = "100.64.0.1:1234"
@@ -59,7 +58,6 @@ func TestTokenRateLimit(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})
 
-		// First rpm requests from the same IP pass
 		for range rpm {
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", nil)
 			req.RemoteAddr = "100.64.0.2:1234"
@@ -67,7 +65,6 @@ func TestTokenRateLimit(t *testing.T) {
 			handler(rr, req)
 			require.Equal(t, http.StatusOK, rr.Code)
 		}
-		// The next request from the same IP is throttled
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", nil)
 		req.RemoteAddr = "100.64.0.2:1234"
 		rr := httptest.NewRecorder()
@@ -91,16 +88,13 @@ func TestTokenRateLimit(t *testing.T) {
 			return rr
 		}
 
-		// IP A: first request OK, second 429
 		assert.Equal(t, http.StatusOK, mk("100.64.0.10:1111").Code)
 		assert.Equal(t, http.StatusTooManyRequests, mk("100.64.0.10:2222").Code)
-		// IP B is unaffected by A's throttling
 		assert.Equal(t, http.StatusOK, mk("100.64.0.11:1111").Code)
 	})
 }
 
 func TestRateLimitKey(t *testing.T) {
-	// Helper that swaps the package-level seam for the duration of the subtest
 	withFunnelClientIP := func(t *testing.T, ip string) {
 		t.Helper()
 		prev := funnelClientIP
@@ -126,7 +120,6 @@ func TestRateLimitKey(t *testing.T) {
 	})
 
 	t.Run("Direct IPv6 request uses the full address", func(t *testing.T) {
-		// Many Tailscale nodes in a tailnet share the same /64 prefix, so each one needs its own bucket
 		withFunnelClientIP(t, "")
 		assert.Equal(t, "fd7a:115c:a1e0::1", keyFor(t, "[fd7a:115c:a1e0::1]:1234"))
 		assert.NotEqual(t, keyFor(t, "[fd7a:115c:a1e0::1]:1234"), keyFor(t, "[fd7a:115c:a1e0::2]:1234"))
@@ -159,7 +152,6 @@ func TestRateLimitKey(t *testing.T) {
 	})
 }
 
-// Exercises the rate limiters through the full handler chain, to catch regressions in the order middlewares are applied
 func TestRouteRateLimits(t *testing.T) {
 	newServer := func(t *testing.T) *Server {
 		t.Helper()
@@ -189,7 +181,6 @@ func TestRouteRateLimits(t *testing.T) {
 	t.Run("Token requests rejected by other middlewares count against the limit", func(t *testing.T) {
 		s := newServer(t)
 
-		// Missing X-Tsiam header, so requireNoBrowser rejects these requests
 		for range 3 {
 			require.Equal(t, http.StatusForbidden, do(t, s, http.MethodPost, "/token?resource="+testAudience, "100.64.0.1:1234"))
 		}
@@ -208,16 +199,13 @@ func TestRouteRateLimits(t *testing.T) {
 		}
 		rr := serve(t, s, http.MethodGet, "/.well-known/jwks.json", "100.64.0.1:1234")
 		assert.Equal(t, http.StatusTooManyRequests, rr.Code)
-		// httprate sets Retry-After to the window length, so this also checks that the window is one second
 		assert.Equal(t, "1", rr.Header().Get("Retry-After"))
 		assert.Equal(t, http.StatusTooManyRequests, do(t, s, http.MethodGet, "/.well-known/openid-configuration", "100.64.0.1:1234"))
 
-		// Another client is unaffected
 		assert.Equal(t, http.StatusOK, do(t, s, http.MethodGet, "/.well-known/jwks.json", "100.64.0.2:1234"))
 	})
 }
 
-// Exercises the Funnel gate through the full handler chain
 func TestRequireFunnelAllowed(t *testing.T) {
 	newServer := func(t *testing.T) *Server {
 		t.Helper()
@@ -263,7 +251,6 @@ func TestRequireFunnelAllowed(t *testing.T) {
 		s := newServer(t)
 		withFunnel(t, "203.0.113.2")
 
-		// Without the gate, the mux would respond to some of these with 405 and an Allow header, or with a redirect
 		requests := []struct{ method, path string }{
 			{http.MethodPost, "/token"},
 			{http.MethodPut, "/token"},
@@ -280,7 +267,6 @@ func TestRequireFunnelAllowed(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, rr.Code, "%s %s", req.method, req.path)
 			assert.Empty(t, rr.Header().Get("Allow"), "%s %s", req.method, req.path)
 			assert.Empty(t, rr.Header().Get("Location"), "%s %s", req.method, req.path)
-			// The token rate limiter would set this header to 3, overwriting the gate's value
 			assert.Equal(t, strconv.Itoa(publicRateLimitPerSecond), rr.Header().Get("X-Ratelimit-Limit"), "%s %s should not reach the token rate limiter", req.method, req.path)
 		}
 	})
@@ -294,7 +280,6 @@ func TestRequireFunnelAllowed(t *testing.T) {
 		}
 		assert.Equal(t, http.StatusTooManyRequests, serve(t, s, http.MethodGet, "/.well-known/jwks.json").Code)
 
-		// Another client is unaffected
 		withFunnel(t, "203.0.113.4")
 		assert.Equal(t, http.StatusOK, serve(t, s, http.MethodGet, "/.well-known/jwks.json").Code)
 	})
@@ -303,7 +288,6 @@ func TestRequireFunnelAllowed(t *testing.T) {
 		s := newServer(t)
 		withFunnel(t, "203.0.113.5")
 
-		// The gate and the route have separate limiters, so each allowed request is counted once and the client gets the full limit
 		for i := range publicRateLimitPerSecond {
 			require.Equal(t, http.StatusOK, serve(t, s, http.MethodGet, "/.well-known/jwks.json").Code, "request %d of the burst should be allowed", i+1)
 		}
@@ -313,7 +297,6 @@ func TestRequireFunnelAllowed(t *testing.T) {
 	t.Run("Tailnet requests are not affected", func(t *testing.T) {
 		s := newServer(t)
 
-		// The mux's own 405 response still applies to tailnet requests
 		assert.Equal(t, http.StatusMethodNotAllowed, serve(t, s, http.MethodPut, "/token").Code)
 		assert.Equal(t, http.StatusNoContent, serve(t, s, http.MethodGet, "/healthz").Code)
 	})
@@ -343,7 +326,6 @@ func TestPanicRecovery(t *testing.T) {
 	t.Run("Panic in an outer middleware", func(t *testing.T) {
 		s := newServer(t, nil)
 
-		// The Funnel gate runs outside of logging and tracing, so only the outermost Recovery can catch this
 		prev := isFunneledRequest
 		isFunneledRequest = func(*http.Request) bool { panic("boom") }
 		t.Cleanup(func() { isFunneledRequest = prev })
@@ -381,7 +363,6 @@ func TestIsKnownHost(t *testing.T) {
 	}
 }
 
-// Exercises the Host check and the nosniff header through the full handler chain
 func TestRequireKnownHost(t *testing.T) {
 	serve := func(t *testing.T, s *Server, host string, path string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -427,7 +408,6 @@ func TestRequireKnownHost(t *testing.T) {
 	})
 }
 
-// Different spellings of the Host header must not create new metric series
 func TestOtelServerName(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	prev := otel.GetMeterProvider()
@@ -438,7 +418,6 @@ func TestOtelServerName(t *testing.T) {
 	t.Cleanup(restore)
 	s.initAppServer()
 
-	// All of these pass requireKnownHost
 	for _, host := range []string{testHostname, strings.ToUpper(testHostname), testHostname + ".", testHostname + ":443", "tsiam"} {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://"+testHostname+"/healthz", nil)
 		req.Host = host
@@ -499,7 +478,7 @@ func TestRequireEmptyBody(t *testing.T) {
 	t.Run("Chunked body (ContentLength = -1) detected and rejected", func(t *testing.T) {
 		called = false
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token", bytes.NewReader([]byte("chunked-data")))
-		req.ContentLength = -1 // Simulates chunked transfer encoding
+		req.ContentLength = -1
 		rr := httptest.NewRecorder()
 		handler(rr, req)
 		assert.False(t, called, "handler must not run when chunked body has data")
@@ -569,7 +548,6 @@ func TestRequireEmptyBody(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = conn.Close() }()
 
-		// "zz" isn't a valid chunk size
 		_, err = conn.Write([]byte("POST /token HTTP/1.1\r\nHost: tsiam\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n"))
 		require.NoError(t, err)
 
@@ -580,7 +558,7 @@ func TestRequireEmptyBody(t *testing.T) {
 	})
 }
 
-// Reader that returns no data and no error on the first read, which io.Reader allows
+// Reader that returns (0, nil) on the first read
 type emptyFirstReader struct {
 	data []byte
 	read bool
@@ -640,8 +618,7 @@ func TestRejectOversizedRequest(t *testing.T) {
 		assert.Equal(t, "close", rr.Header().Get("Connection"))
 	})
 
-	t.Run("Unknown Content-Length passes through to handler / MaxBytesReader backstop", func(t *testing.T) {
-		// Chunked transfer encoding sends ContentLength = -1; the upfront check must let it through (the backstop middleware will still cap any actual body read)
+	t.Run("Unknown Content-Length passes through", func(t *testing.T) {
 		called = false
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", bytes.NewReader([]byte("ignored")))
 		req.ContentLength = -1
@@ -804,7 +781,6 @@ func TestRequireNoBrowser(t *testing.T) {
 }
 
 func TestRequireNotFunneledRequest(t *testing.T) {
-	// Helper that swaps the package-level seam for the duration of the subtest
 	withFunneled := func(t *testing.T, funneled bool) {
 		t.Helper()
 		prev := isFunneledRequest
@@ -980,7 +956,6 @@ func TestValidateNoBrowser(t *testing.T) {
 		})
 	}
 
-	// Header.Get only returns the first value, so a browser header after an empty one must still be found
 	for _, h := range browserHeaders {
 		t.Run("Second "+h+" header after an empty one", func(t *testing.T) {
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
@@ -994,13 +969,11 @@ func TestValidateNoBrowser(t *testing.T) {
 	}
 }
 
-// Trace context sent by the caller in the tests, with the sampled flag off
 const (
 	callerTraceID     = "4bf92f3577b34da6a3ce929d0e0e4736"
 	callerTraceparent = "00-" + callerTraceID + "-00f067aa0ba902b7-00"
 )
 
-// Builds a server whose middlewares record spans and logs, which otelhttp and sloghttp read from the globals when the middlewares are created
 func newTelemetryTestServer(t *testing.T) (s *Server, spans *tracetest.SpanRecorder, logs *strings.Builder) {
 	t.Helper()
 
@@ -1027,7 +1000,6 @@ func newTelemetryTestServer(t *testing.T) (s *Server, spans *tracetest.SpanRecor
 	return s, spans, logs
 }
 
-// Returns the only span that was recorded
 func onlySpan(t *testing.T, spans *tracetest.SpanRecorder) sdktrace.ReadOnlySpan {
 	t.Helper()
 	ended := spans.Ended()
@@ -1035,7 +1007,6 @@ func onlySpan(t *testing.T, spans *tracetest.SpanRecorder) sdktrace.ReadOnlySpan
 	return ended[0]
 }
 
-// Returns the value of a span attribute, or an empty string if it's not set
 func spanAttr(span sdktrace.ReadOnlySpan, key attribute.Key) string {
 	for _, kv := range span.Attributes() {
 		if kv.Key == key {
@@ -1061,11 +1032,8 @@ func TestTelemetry(t *testing.T) {
 		rr := httptest.NewRecorder()
 		s.handler.ServeHTTP(rr, newRequest(t, "/healthz"))
 		require.Equal(t, http.StatusNoContent, rr.Code)
-
-		// With the sampled flag off in the caller's trace context, the default sampler doesn't record the span
 		assert.Empty(t, spans.Ended())
 
-		// With the flag on, the span is part of the caller's trace
 		req := newRequest(t, "/healthz")
 		req.Header.Set("Traceparent", strings.TrimSuffix(callerTraceparent, "00")+"01")
 		s.handler.ServeHTTP(httptest.NewRecorder(), req)
@@ -1087,17 +1055,14 @@ func TestTelemetry(t *testing.T) {
 		s.handler.ServeHTTP(rr, newRequest(t, "/.well-known/jwks.json"))
 		require.Equal(t, http.StatusOK, rr.Code)
 
-		// The span is recorded even though the caller turned sampling off, because it's not part of the caller's trace
 		span := onlySpan(t, spans)
 		assert.NotEqual(t, callerTraceID, span.SpanContext().TraceID().String())
 		assert.False(t, span.Parent().IsValid())
 
-		// The caller's span is only linked
 		links := span.Links()
 		require.Len(t, links, 1)
 		assert.Equal(t, callerTraceID, links[0].SpanContext.TraceID().String())
 
-		// The span and the request log have the client's IP instead of the Tailscale relay
 		assert.Equal(t, "203.0.113.9", spanAttr(span, "client.address"))
 		assert.Contains(t, logs.String(), "funnelClientIp=203.0.113.9")
 	})

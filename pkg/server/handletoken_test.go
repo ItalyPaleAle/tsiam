@@ -31,8 +31,6 @@ const (
 	testWhoisLogin = "alice@example.com"
 )
 
-// Builds a Server wired with the given whoIs stub, a fresh ES256 signing key, and no appMetrics
-// `cfg` is applied to the global config via SetTestConfig; the caller is expected to defer the returned restore func
 func newTestServer(t *testing.T, cfg func(*config.Config), whoIs func(*http.Request) (tsnetserver.TailscaleWhoIs, error)) (*Server, func()) {
 	t.Helper()
 
@@ -62,7 +60,6 @@ func newTestServer(t *testing.T, cfg func(*config.Config), whoIs func(*http.Requ
 	return s, restore
 }
 
-// Builds an authorized whois for a personal (untagged) node with the test audience in its capability
 func defaultWhois() tsnetserver.TailscaleWhoIs {
 	return tsnetserver.TailscaleWhoIs{
 		NodeID:        testWhoisNode,
@@ -79,7 +76,6 @@ func defaultWhois() tsnetserver.TailscaleWhoIs {
 	}
 }
 
-// Fires a request through handlePostToken; query is appended verbatim, including the leading `?` if present
 func postToken(t *testing.T, s *Server, query string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/token"+query, nil)
@@ -98,14 +94,12 @@ func TestHandlePostToken_WhoIsFailure(t *testing.T) {
 
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 	assert.Contains(t, rr.Body.String(), "node_identity")
-	// Error responses aren't cached either
 	assert.Equal(t, "no-store", rr.Header().Get("Cache-Control"))
 }
 
 func TestHandlePostToken_NodeNotInTailnet(t *testing.T) {
 	t.Run("shared node", func(t *testing.T) {
 		s, restore := newTestServer(t, nil, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
-			// The name is in this tailnet's domain, so only the Shared flag can cause the rejection
 			whois := defaultWhois()
 			whois.Shared = true
 			return whois, nil
@@ -147,7 +141,6 @@ func TestHandlePostToken_NodeNotInTailnet(t *testing.T) {
 }
 
 func TestHandlePostToken_NodeState(t *testing.T) {
-	// Returns the response to a token request from the default caller, after applying modify to its whois
 	serve := func(t *testing.T, modify func(whois *tsnetserver.TailscaleWhoIs)) *httptest.ResponseRecorder {
 		t.Helper()
 		s, restore := newTestServer(t, nil, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
@@ -179,7 +172,6 @@ func TestHandlePostToken_NodeState(t *testing.T) {
 		})
 	}
 
-	// Returns the expires_in value from the response, and the exp claim of the token
 	issue := func(t *testing.T, keyExpiry time.Time) (expiresIn string, exp time.Time) {
 		t.Helper()
 		rr := serve(t, func(w *tsnetserver.TailscaleWhoIs) { w.KeyExpiry = keyExpiry })
@@ -238,7 +230,6 @@ func TestHandlePostToken_ConflictingAudienceParams(t *testing.T) {
 
 func TestHandlePostToken_AudienceNotInGlobalAllowlist(t *testing.T) {
 	s, restore := newTestServer(t, nil, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
-		// Caller has a capability for a different audience, but it's not in the global allowlist either way
 		whois := defaultWhois()
 		whois.CapMap[tsnet.AudienceCapability] = []tailcfg.RawMessage{
 			tailcfg.RawMessage(`{"allowedAudiences":["https://other.example.com"]}`),
@@ -254,7 +245,6 @@ func TestHandlePostToken_AudienceNotInGlobalAllowlist(t *testing.T) {
 }
 
 func TestHandlePostToken_AudienceNotPermittedByCaller(t *testing.T) {
-	// Caller has no capability and the operator did not opt in to allowing capability-less callers
 	s, restore := newTestServer(t, func(c *config.Config) {
 		c.Tokens.AllowEmptyNodeCapability = false
 	}, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
@@ -300,7 +290,6 @@ func TestHandlePostToken_Success(t *testing.T) {
 	assert.NotEmpty(t, resp.ExpiresOn)
 	assert.NotEmpty(t, resp.NotBefore)
 
-	// Decode the token and verify the claims wired through correctly
 	parsed, err := jwt.Parse([]byte(resp.AccessToken),
 		jwt.WithKey(mustAlg(t, s), s.signingKey),
 	)
@@ -318,8 +307,6 @@ func TestHandlePostToken_Success(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, []string{testAudience}, auds)
 
-	// The identity claim contains only the fields with a value
-	// jwx encodes claims with encoding/json/v2, which includes false bools that have only omitempty
 	identity, err := jwt.Get[map[string]any](parsed, "italypaleale.me/tsiam")
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{
@@ -443,7 +430,6 @@ func TestHandlePostToken_SubjectConflict(t *testing.T) {
 func TestHandlePostToken_TaggedNodeBlanksUserLoginInClaim(t *testing.T) {
 	s, restore := newTestServer(t, nil, func(*http.Request) (tsnetserver.TailscaleWhoIs, error) {
 		whois := defaultWhois()
-		// Tag actor's email; with the sanitizeWhois fix this should be blanked in the issued token
 		whois.Tags = []string{"tag:db-backup"}
 		whois.UserLoginName = "admin@example.com"
 		return whois, nil
@@ -467,8 +453,6 @@ func TestHandlePostToken_TaggedNodeBlanksUserLoginInClaim(t *testing.T) {
 
 	claim, err := jwt.Get[map[string]any](parsed, "italypaleale.me/tsiam")
 	require.NoError(t, err)
-	// The TailscaleWhoIs JSON tags use omitempty, so an empty UserLoginName is dropped from the encoded claim rather than emitted as ""
-	// Either form (missing key, or empty-string value) is acceptable evidence of the sanitization fix
 	v, present := claim["userLoginName"]
 	if present {
 		assert.Empty(t, v, "tagged-node UserLoginName must be blanked in the tsiam claim")
@@ -533,7 +517,6 @@ func TestIdentityClaimWhois(t *testing.T) {
 	})
 
 	t.Run("Host name is the MagicDNS name without the tailnet suffix", func(t *testing.T) {
-		// whois.Hostname includes the hostname that the node reports, when it's different from the MagicDNS name
 		whois := newWhois()
 		whois.Hostname = "alice (evil-hostname)"
 		res := identityClaimWhois(whois, false)
@@ -541,7 +524,6 @@ func TestIdentityClaimWhois(t *testing.T) {
 	})
 
 	t.Run("Input whois is not modified", func(t *testing.T) {
-		// The handler keeps using its whois copy after building the claim payload, so the shared map must be left intact
 		whois := newWhois()
 		_ = identityClaimWhois(whois, false)
 		_ = identityClaimWhois(whois, true)
@@ -554,7 +536,6 @@ func TestIdentityClaimWhois(t *testing.T) {
 func TestHandlePostToken_IdentityClaimCapabilities(t *testing.T) {
 	const otherCap = peercap.Cap("example.com/other-app")
 
-	// Returns the identity claim of a token issued to a caller holding both a tsiam grant and a grant for another application
 	issue := func(t *testing.T, includeCapabilities bool) map[string]any {
 		t.Helper()
 
@@ -615,7 +596,6 @@ func TestHandlePostToken_CustomClaimName(t *testing.T) {
 	})
 	defer restore()
 
-	// defaultWhois grants the audience under the `italypaleale.me/tsiam` ACL capability, so a successful issuance shows that renaming the claim leaves the capability key unchanged
 	rr := postToken(t, s, "?resource="+testAudience)
 	require.Equal(t, http.StatusOK, rr.Code, "body: %s", rr.Body.String())
 
@@ -668,7 +648,6 @@ func TestHandlePostToken_InvalidQuery(t *testing.T) {
 }
 
 func TestHandlePostToken_ResourceAndAudienceAliases(t *testing.T) {
-	// Both query parameter names should be accepted; resource wins when both are set to the same value
 	cases := []string{
 		"?resource=" + testAudience,
 		"?audience=" + testAudience,
@@ -687,7 +666,6 @@ func TestHandlePostToken_ResourceAndAudienceAliases(t *testing.T) {
 	}
 }
 
-// Returns the signing algorithm registered on the test signing key
 func mustAlg(t *testing.T, s *Server) jwa.KeyAlgorithm {
 	t.Helper()
 	alg, ok := s.signingKey.Algorithm()
@@ -715,7 +693,6 @@ func TestHandlePostToken_AuditLogIncludesSubject(t *testing.T) {
 	rr := postToken(t, s, "?resource="+testAudience)
 	require.Equal(t, http.StatusOK, rr.Code)
 
-	// The subject isn't the node ID here, so the log needs both to match the token with the node
 	assert.Contains(t, logs.String(), `msg="Token issued"`)
 	assert.Contains(t, logs.String(), "subject=worker-fleet")
 	assert.Contains(t, logs.String(), "nodeId="+testWhoisNode)

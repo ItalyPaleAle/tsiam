@@ -90,8 +90,8 @@ logs:
 metrics:
   ## metrics.includeNodeName (boolean)
   ## Description:
-  ##   If true, the `tsiam_auths` metric includes the name of the node that requested each token, in the `node` attribute.
-  ##   Each node name creates a new time series, so only enable it when the set of nodes is small and stable
+  ##   If true, add the caller's node name (`node` attribute) to the `tsiam_auths` metric.
+  ##   Avoid enabling this with ephemeral nodes, as each node name creates a new time series.
   ## Default: false
   #includeNodeName: false
 
@@ -125,40 +125,30 @@ tokens:
 
   ## tokens.rateLimitPerMinute (number)
   ## Description:
-  ##   Maximum number of `/token` requests accepted per minute from a single client IP
-  ##   Set to 0 to disable rate limiting
-  ##   The key is the caller's Tailscale IP
+  ##   Maximum number of `/token` requests per minute per client IP (0 to disable)
   ## Default: 60
   #rateLimitPerMinute: 60
 
   ## tokens.subjectClaim (string)
   ## Description:
-  ##   Controls what value is placed in the JWT `sub` claim
+  ##   Value to use for the JWT `sub` claim
   ##   Allowed values:
-  ##     - "nodeId" (default, recommended): the unique, stable Tailscale node identifier
-  ##     - "name": the Tailscale node name, which is the MagicDNS name without trailing dot - See WARNING below
-  ##     - "capability": the `subject` field of the Tailscale ACL grants that authorize the requested audience. Lets multiple nodes share a workload identity by setting the same `subject` in their grant. Falls back to the stable node ID when none of the matching grants has a `subject` set, or when the caller has no capability and `allowEmptyNodeCapability` is true
-  ##
-  ##   WARNING for `"name"`: node names CAN be reused once a device is removed from the tailnet, which means a relying-party trust policy keyed on a node name can be silently re-targeted by whoever creates the next device with that name.
-  ##   Only choose `"name"` if you have relying parties that cannot be reconfigured to consume the stable node ID, and treat the node name as a soft identifier (e.g. require additional checks on the `nodeId` field of the identity claim).
-  ##
-  ##   In all cases the full whois payload (node ID, name, tags, user, IPs) is also exposed under the identity claim, whose name is set by `claimName`.
+  ##     - "nodeId" (default, recommended): stable Tailscale node ID
+  ##     - "name": MagicDNS node name (can be reused if a device is removed and re-created)
+  ##     - "capability": `subject` field from matching Tailscale ACL grants, falling back to the node ID if no matching grant sets `subject`
   ## Default: "nodeId"
   #subjectClaim: "nodeId"
 
   ## tokens.claimName (string)
   ## Description:
-  ##   Name of the custom JWT claim that carries the caller's Tailscale identity (node ID, name, tags, user, IPs).
-  ##   Must not be one of the registered claims that tsiam sets itself (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`), or a claim that relying parties interpret (`azp`, `nonce`, `auth_time`, `acr`, `amr`, `cnf`, `act`, `may_act`, `scope`, `client_id`).
-  ##   Must be at most 256 characters.
-  ##   Note: This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always `italypaleale.me/tsiam`.
+  ##   Name of the custom JWT claim with the caller's Tailscale identity
+  ##   Note: Tailscale ACL grants always use `italypaleale.me/tsiam` regardless of this setting
   ## Default: "italypaleale.me/tsiam"
   #claimName: "italypaleale.me/tsiam"
 
   ## tokens.includeCapabilities (boolean)
   ## Description:
-  ##   If true, the identity claim includes the caller's tsiam capability grants (the `italypaleale.me/tsiam` values from Tailscale ACL grants) under the `capMap` .field
-  ##   Tokens are signed but not encrypted, so when enabled every relying party can read the caller's `allowedAudiences` and `subject` grant values.
+  ##   If true, include the caller's tsiam capability grants under `capMap` in the identity claim
   ## Default: false
   #includeCapabilities: false
 
@@ -174,7 +164,7 @@ signingKey:
   ## Description:
   ##   Signing algorithm to use.
   ##   Supported values: RS256, ES256, ES384, ES512, EdDSA.
-  ##   Changing this doesn't replace a signing key that is already stored.
+  ##   Changing this does not replace an existing key.
   ## Default: "ES256"
   #algorithm: "ES256"
 
@@ -216,8 +206,6 @@ signingKey:
     ## Description:
     ##   KeyVersion is the version of the key in Azure Key Vault used to wrap new signing keys.
     ##   If empty or "latest", the latest version of the key is used.
-    ##   The wrapped signing key file records the version that wrapped it, and tsiam always unwraps it with that version.
-    ##   After rotating the key in Azure Key Vault, keep that version enabled.
     #keyVersion: ""
 
     ## signingKey.azureKeyVaultKeys.storagePath (string)
@@ -230,21 +218,19 @@ signingKey:
     ## Description:
     ##   TenantID is the Microsoft Entra ID tenant ID for authentication.
     ##   Required when `clientSecret` is set.
-    ##   Without `clientSecret` and `clientId`, it's the tenant that DefaultAzureCredential authenticates to (for example, with workload identity or the Azure CLI).
     #tenantId: ""
 
     ## signingKey.azureKeyVaultKeys.clientId (string)
     ## Description:
-    ##   ClientID is the Microsoft Entra ID application (client) ID for authentication.
+    ##   ClientID is the Microsoft Entra ID application (client) ID or user-assigned managed identity client ID for authentication.
     ##   Required when `clientSecret` is set.
-    ##   Without `clientSecret`, it selects a user-assigned managed identity, or the workload identity when `AZURE_FEDERATED_TOKEN_FILE` is set (as on AKS).
-    ##   If `clientId` and `clientSecret` are both empty, DefaultAzureCredential is used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    ##   If `clientId` and `clientSecret` are both empty, DefaultAzureCredential is used.
     #clientId: ""
 
     ## signingKey.azureKeyVaultKeys.clientSecret (string)
     ## Description:
     ##   ClientSecret is the Microsoft Entra ID application client secret for authentication.
-    ##   When set, `tenantId` and `clientId` are required too.
+    ##   Requires `tenantId` and `clientId`.
     #clientSecret: ""
 
   ## signingKey.azureKeyVaultSecrets
@@ -268,20 +254,18 @@ signingKey:
     ## Description:
     ##   TenantID is the Microsoft Entra ID tenant ID for authentication.
     ##   Required when `clientSecret` is set.
-    ##   Without `clientSecret` and `clientId`, it's the tenant that DefaultAzureCredential authenticates to (for example, with workload identity or the Azure CLI).
     #tenantId: ""
 
     ## signingKey.azureKeyVaultSecrets.clientId (string)
     ## Description:
-    ##   ClientID is the Microsoft Entra ID application (client) ID for authentication.
+    ##   ClientID is the Microsoft Entra ID application (client) ID or user-assigned managed identity client ID for authentication.
     ##   Required when `clientSecret` is set.
-    ##   Without `clientSecret`, it selects a user-assigned managed identity, or the workload identity when `AZURE_FEDERATED_TOKEN_FILE` is set (as on AKS).
-    ##   If `clientId` and `clientSecret` are both empty, DefaultAzureCredential is used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+    ##   If `clientId` and `clientSecret` are both empty, DefaultAzureCredential is used.
     #clientId: ""
 
     ## signingKey.azureKeyVaultSecrets.clientSecret (string)
     ## Description:
     ##   ClientSecret is the Microsoft Entra ID application client secret for authentication.
-    ##   When set, `tenantId` and `clientId` are required too.
+    ##   Requires `tenantId` and `clientId`.
     #clientSecret: ""
 

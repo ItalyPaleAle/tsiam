@@ -212,7 +212,6 @@ func TestSanitizeWhois(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := sanitizeWhois(tt.input)
 			assert.Equal(t, tt.expectUserName, result.UserLoginName)
-			// Other identifying fields should pass through untouched
 			assert.Equal(t, tt.input.NodeID, result.NodeID)
 			assert.Equal(t, tt.input.Name, result.Name)
 			assert.Equal(t, tt.input.Tags, result.Tags)
@@ -233,8 +232,6 @@ type oidcConfigurationDocument struct {
 	IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
 }
 
-// Builds a Server with a fresh signing key and a pre-computed JWKS for discovery tests
-// Hostname is fixed so the OIDC URLs are predictable; whoIs is unused by these handlers
 func newDiscoveryServer(t *testing.T, algorithm string) *Server {
 	t.Helper()
 	signingKey, err := jwks.NewSigningKey(algorithm, "")
@@ -258,14 +255,11 @@ func TestHandleGetJWKS(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Header().Get(httpserver.HeaderContentType), "application/json")
 	assert.Equal(t, "public, max-age=300", rr.Header().Get("Cache-Control"))
-
-	// Body must be byte-identical to the precomputed JWKS; any drift between the cached bytes and what's served would break relying-party verification
 	assert.Equal(t, string(s.publicJwks), rr.Body.String())
 
-	// The body must round-trip through jwk.ParseString and contain a key whose kid matches the live signing key
 	set, err := jwk.ParseString(rr.Body.String())
 	require.NoError(t, err)
-	require.Equal(t, 1, set.Len(), "JWKS should contain exactly one key for the live signing key")
+	require.Equal(t, 1, set.Len(), "JWKS should contain exactly one key")
 
 	pubKey, ok := set.Key(0)
 	require.True(t, ok)
@@ -298,7 +292,6 @@ func TestHandleGetOpenIDConfiguration(t *testing.T) {
 			err := json.Unmarshal(rr.Body.Bytes(), &doc)
 			require.NoError(t, err)
 
-			// token_endpoint isn't published, since /token isn't an OAuth 2.0 token endpoint
 			var fields map[string]any
 			err = json.Unmarshal(rr.Body.Bytes(), &fields)
 			require.NoError(t, err)
@@ -385,7 +378,6 @@ func TestNewServer(t *testing.T) {
 		assert.Nil(t, s)
 	})
 
-	// The checks are tested in detail in the jwks package
 	t.Run("rejects an invalid signing key", func(t *testing.T) {
 		signingKey, err := jwks.NewSigningKey("ES256", "")
 		require.NoError(t, err)
