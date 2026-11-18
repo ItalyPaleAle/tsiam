@@ -9,7 +9,6 @@ import (
 )
 
 func TestGetOtelResource(t *testing.T) {
-	// Returns the value of an attribute of the resource, or an empty string if it's not set
 	getAttr := func(t *testing.T, c *Config, key attribute.Key) string {
 		t.Helper()
 		res, err := c.GetOtelResource("tsiam")

@@ -20,7 +20,6 @@ func TestShutdownManager(t *testing.T) {
 		)
 		record := func(name string) func(ctx context.Context) error {
 			return func(ctx context.Context) error {
-				// Fails the test if two functions run at the same time
 				assert.False(t, running, "%s started while another function was running", name)
 				running = true
 				time.Sleep(10 * time.Millisecond)

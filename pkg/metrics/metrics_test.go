@@ -11,7 +11,6 @@ import (
 )
 
 func TestRecordAuth(t *testing.T) {
-	// Records one authentication, and returns the attributes of the data point
 	record := func(t *testing.T, includeNodeName bool) attribute.Set {
 		t.Helper()
 

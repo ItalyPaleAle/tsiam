@@ -21,13 +21,9 @@ import (
 	"github.com/italypaleale/tsiam/pkg/tsnet"
 )
 
-// Cache-Control header for the public endpoints (`/.well-known/*`)
-// Letting relying parties cache the responses for 5 minutes keeps them from hitting the rate limit
 const publicCacheControl = "public, max-age=300"
 
-// Value of authorization_endpoint in the OpenID Connect discovery document
-// tsiam has no authorization endpoint, since nodes get tokens from /token, but OpenID Connect Discovery requires the field, and some clients fail without it
-// A URN can't be mistaken for an endpoint to call (prior art: what Amazon EKS uses)
+// OIDC Discovery requires authorization_endpoint even though tokens are requested directly from /token
 const authorizationEndpoint = "urn:tsiam:programmatic_authorization"
 
 // handleGetHealthz handles the requests to the healthcheck endpoint (`GET /healthz`)
@@ -50,7 +46,7 @@ func (s *Server) handleGetRoot(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Get()
 
-	// Responses can contain a bearer token, which must not be cached (RFC 6749, section 5.1)
+	// Prevent caching of token responses (RFC 6749 section 5.1)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
 
@@ -67,9 +63,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Only nodes in tsiam's own tailnet can get tokens
-	// Nodes from other tailnets can reach tsiam when they're shared into this tailnet, or when tsiam is shared with their users
-	// This tailnet doesn't vouch for their identity, including the user login
+	// Reject nodes from other tailnets (such as shared nodes)
 	if whois.Shared || !tsnet.IsSameTailnet(whois.Name, s.hostname()) {
 		slog.WarnContext(r.Context(), "Rejected caller from another tailnet",
 			slog.String("nodeId", whois.NodeID),
@@ -80,7 +74,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tailscale can still deliver requests from nodes that aren't allowed on the tailnet anymore, for example over a connection opened before the node's key expired
+	// Reject nodes with expired keys or restricted access
 	now := time.Now()
 	if whois.KeyExpired || (!whois.KeyExpiry.IsZero() && !now.Before(whois.KeyExpiry)) {
 		slog.WarnContext(r.Context(), "Rejected caller whose node key expired",
@@ -112,7 +106,6 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 			slog.Any("error", err),
 		)
 
-		// Writing the response requires an ApiError, since the zero value carries no HTTP status code
 		var apiErr httpserver.ApiError
 		ok := errors.As(err, &apiErr)
 		if !ok {
@@ -157,7 +150,7 @@ func (s *Server) handlePostToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tokens don't outlive the caller's node key
+	// Cap token lifetime at the caller's node key expiry
 	lifetime := cfg.Tokens.Lifetime
 	if !whois.KeyExpiry.IsZero() {
 		lifetime = min(lifetime, whois.KeyExpiry.Sub(now))
@@ -232,8 +225,7 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// There's no token_endpoint
-	// /token isn't an OAuth 2.0 token endpoint, it's not reachable over Funnel, and OpenID Connect Discovery doesn't require it when the only response type is "id_token"
+	// /token is not a standard OAuth 2.0 token endpoint, so token_endpoint is omitted
 	//nolint:tagliatelle
 	type oidcConfiguration struct {
 		Issuer                           string   `json:"issuer"`
@@ -245,7 +237,6 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 		IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
 	}
 
-	// The tsnet FQDN is the MagicDNS name that Funnel exposes publicly, so the same hostname works for both tailnet-only and Funnel deployments
 	endpoint := "https://" + s.hostname()
 
 	w.Header().Set(httpserver.HeaderContentType, httpserver.ContentTypeJson)
@@ -261,9 +252,7 @@ func (s *Server) handleGetOpenIDConfiguration(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// Clears identity fields on the resolved whois that are not meaningful for the given Tailscale identity
-// On tagged nodes the upstream UserLoginName carries the tag actor's email rather than a workload-owning user
-// Blanking it here prevents relying parties from binding trust policies on a value that does not actually identify the workload (the node's tags are still emitted in the `tags` field of the identity claim)
+// Clears UserLoginName on tagged nodes, where it contains the tag authorizer rather than a user owner
 func sanitizeWhois(whois tsnetserver.TailscaleWhoIs) tsnetserver.TailscaleWhoIs {
 	if len(whois.Tags) > 0 {
 		whois.UserLoginName = ""
@@ -271,12 +260,9 @@ func sanitizeWhois(whois tsnetserver.TailscaleWhoIs) tsnetserver.TailscaleWhoIs 
 	return whois
 }
 
-// Returns the whois payload to embed in the identity claim of issued tokens
-// Tokens are signed but not encrypted, so everything in the payload is readable by every relying party and by anyone the token is shown to
-// tsiam's own capability grants are kept only when the operator opts in with `tokens.includeCapabilities`
+// Builds the TailscaleWhoIs value for the token's identity claim
 func identityClaimWhois(whois tsnetserver.TailscaleWhoIs, includeCapabilities bool) tsnetserver.TailscaleWhoIs {
-	// The host name is the MagicDNS name without the tailnet suffix, which the control plane sets
-	// whois.Hostname isn't used, since it adds the hostname that the node reports when it's different, as in "alice (alice-laptop)"
+	// Derive hostname from the MagicDNS name rather than whois.Hostname, which uses the device's OS hostname
 	hostname, _, _ := strings.Cut(whois.Name, ".")
 
 	// Copy the object
@@ -290,7 +276,6 @@ func identityClaimWhois(whois tsnetserver.TailscaleWhoIs, includeCapabilities bo
 		Tags:          whois.Tags,
 	}
 
-	// Build a new map instead of deleting keys, since the map is shared with the caller
 	capValues, ok := whois.CapMap[tsnet.AudienceCapability]
 	if includeCapabilities && ok {
 		res.CapMap = tailcfg.PeerCapMap{
@@ -301,10 +286,7 @@ func identityClaimWhois(whois tsnetserver.TailscaleWhoIs, includeCapabilities bo
 	return res
 }
 
-// Returns the value to use for the JWT `sub` claim, based on the configured subject-claim source
-// subjects are the distinct subjects set by the grants that authorize the audience, as returned by tsnet.MatchAudienceCapability
-// Defaults to the stable Tailscale node identifier when the configured value is unrecognized, when the configured value is "capability" but no matching grant has a `subject`, or when the caller has no capability at all (only reachable when `allowEmptyNodeCapability` is true)
-// With "capability", returns errSubjectConflict when the grants set different subjects, since picking one would depend on the order of the grants
+// Returns the value for the JWT `sub` claim based on cfg.Tokens.SubjectClaim
 func resolveSubject(cfg *config.Config, whois tsnetserver.TailscaleWhoIs, subjects []string) (string, error) {
 	switch cfg.Tokens.SubjectClaim {
 	case config.SubjectClaimName:
@@ -323,16 +305,14 @@ func resolveSubject(cfg *config.Config, whois tsnetserver.TailscaleWhoIs, subjec
 	return whois.NodeID, nil
 }
 
-// extractAudience extracts and validates the audience parameter from the request
-// All errors returned are httpserver.ApiError values, which callers can write to the response
+// extractAudience extracts and validates the audience query parameter
 func extractAudience(r *http.Request) (string, error) {
-	// Parse the query string here instead of using r.URL.Query(), which ignores errors and leaves out the parameters it can't parse
+	// Use url.ParseQuery instead of r.URL.Query() so malformed query strings are rejected
 	query, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
 		return "", errInvalidQuery
 	}
 
-	// Each parameter can be set only once, so the audience doesn't depend on which value is read
 	if len(query["resource"]) > 1 || len(query["audience"]) > 1 {
 		return "", errAudienceDuplicate
 	}
@@ -360,8 +340,7 @@ func extractAudience(r *http.Request) (string, error) {
 		return "", errAudienceTooLong
 	}
 
-	// Reject control / non-printable bytes
-	// Audiences end up in JWT claims and in log lines, so a CR/LF or other control byte would let an attacker inject log lines or break consumers that don't quote the audience
+	// Reject control and non-printable characters
 	if utils.HasControlChars(res) {
 		return "", errAudienceInvalidChars
 	}

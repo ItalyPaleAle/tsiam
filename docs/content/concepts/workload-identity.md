@@ -50,7 +50,7 @@ Your Tailnet is the platform where apps are running in. Every node on the Tailne
 
 The token encodes the node's Tailscale ID, name, IP addresses, and tags. Any service that trusts tsiam's OIDC endpoint can verify it with standard JWT tooling. Because the token request goes over the Tailnet, tsiam knows with certainty who is asking: the caller can't fake their Tailscale identity any more than an EC2 instance can fake its IAM role.
 
-The identity belongs to the node, not to a single process: every process on a node can get the same tokens, including containers that share the node's network. To give workloads separate identities, run each one as its own Tailscale node, for example with a Tailscale sidecar for each container.
+Identity is per node, not per process: every process on a node can get the same tokens, including containers that share the node's network. To give workloads separate identities, run each one as its own Tailscale node (for example, with a Tailscale sidecar).
 
 The result is a workload identity system that works for any machine on your Tailnet, including physical servers, VMs, containers, cloud instances, regardless of where they run or which cloud provider hosts them.
 

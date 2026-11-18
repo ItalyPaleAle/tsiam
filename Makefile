@@ -14,8 +14,7 @@ test-race:
 lint:
 	golangci-lint run -c .golangci.yaml
 
-# Scan for known vulnerabilities in code that is reachable from tsiam, for every OS that releases are built for
-# The tool is built once for the host and then run with GOOS set, since `GOOS=x go tool` would build govulncheck itself for that OS
+# Scan for known vulnerabilities across target OSes
 .PHONY: vulncheck
 vulncheck:
 	@set -e; \

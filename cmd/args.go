@@ -9,9 +9,7 @@ import (
 	"github.com/italypaleale/tsiam/pkg/buildinfo"
 )
 
-// Handles the command-line arguments, before tsiam loads its configuration
-// tsiam is configured with a YAML file, so the only flags are --help and --version
-// Returns true if tsiam should exit, and the exit code
+// Parses command-line flags (--help and --version) before loading configuration
 func handleArgs(args []string, stdout io.Writer, stderr io.Writer) (exit bool, code int) {
 	fs := flag.NewFlagSet(buildinfo.AppName, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -28,7 +26,6 @@ func handleArgs(args []string, stdout io.Writer, stderr io.Writer) (exit bool, c
 	case errors.Is(err, flag.ErrHelp):
 		return true, 0
 	case err != nil:
-		// The flag package already printed the error and the usage
 		return true, 2
 	case fs.NArg() > 0:
 		_, _ = fmt.Fprintf(stderr, "Unexpected argument: %s\n", fs.Arg(0))

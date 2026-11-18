@@ -217,7 +217,7 @@ func TestNewToken(t *testing.T) {
 		exp, ok := parsedToken.Expiration()
 		require.True(t, ok)
 
-		// nbf is a few seconds before iat, to tolerate clock skew
+		// nbf is set slightly before iat for clock skew
 		assert.Equal(t, iat.Add(-notBeforeLeeway).Unix(), nbf.Unix())
 		assert.Equal(t, nbf.Unix(), resp.NotBefore)
 
@@ -279,8 +279,6 @@ func TestNewToken(t *testing.T) {
 		claim, err := jwt.Get[map[string]any](parsedToken, "tsiam")
 		require.NoError(t, err, "identity claim should be present under the configured name")
 		assert.Equal(t, "test-node-id", claim["nodeId"])
-
-		// The payload must be emitted only once, so relying parties never see two copies that could disagree
 		assert.False(t, parsedToken.Has("italypaleale.me/tsiam"), "default claim name should not be emitted when a custom name is set")
 	})
 

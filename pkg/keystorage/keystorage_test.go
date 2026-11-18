@@ -22,14 +22,12 @@ func TestEnsureKeyDir(t *testing.T) {
 		info, err := os.Stat(dir)
 		require.NoError(t, err)
 		assert.True(t, info.IsDir())
-		// Permission bits are not meaningful on Windows
 		if runtime.GOOS != "windows" {
 			assert.Equal(t, os.FileMode(0700), info.Mode().Perm())
 		}
 	})
 
 	t.Run("Leaves an existing directory unchanged", func(t *testing.T) {
-		// Permission bits are not meaningful on Windows
 		if runtime.GOOS == "windows" {
 			t.Skip("skipping permission check on Windows")
 		}
@@ -58,8 +56,7 @@ func TestEnsureKeyDir(t *testing.T) {
 	})
 }
 
-// Captures the logs sent to the default logger until the end of the test
-// Tests in this package don't run in parallel, so they can replace the default logger
+// Captures logs written to the default logger during the test
 func captureLogs(t *testing.T) *strings.Builder {
 	t.Helper()
 

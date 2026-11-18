@@ -83,8 +83,8 @@ VERSION="v1.x.x"
 
 curl -fsSLO "https://github.com/ItalyPaleAle/tsiam/releases/download/${VERSION}/tsiam-${VERSION}-linux-amd64.tar.gz"
 
-# Check that the archive was built by tsiam's release workflow (requires the GitHub CLI)
-# Without the GitHub CLI, you can compare the archive's SHA-256 with the one in the release's `checksums.txt` file instead
+# Verify the release attestation (requires the GitHub CLI)
+# Or compare the SHA-256 hash against checksums.txt in the release
 gh attestation verify "tsiam-${VERSION}-linux-amd64.tar.gz" --repo ItalyPaleAle/tsiam
 
 tar -xzf "tsiam-${VERSION}-linux-amd64.tar.gz"
@@ -120,7 +120,7 @@ On first startup, tsiam needs to join your Tailnet. The simplest way is an auth 
 
    Or pass it as the `TS_AUTHKEY` environment variable.
 
-Alternatively, you can authenticate via OAuth2 or workload identity federation — see [Configuration](/docs/configuration#authentication) for details.
+Alternatively, you can authenticate via OAuth2 or workload identity federation (see [Configuration](/docs/configuration#authentication)).
 
 > Authentication credentials are only used on first startup or when the node key expires.
 
@@ -148,13 +148,13 @@ By default, a node can only request tokens for the audiences that a Tailscale AC
 }
 ```
 
-This grant lets the devices of your Tailnet's members connect to tsiam (`ip`) and request tokens for `https://api.example.com` (`app`). Change `src` to the users or tags of the nodes that need tokens. See [Audience authorization](/docs/audience-authorization) for more details.
+This grant allows members of your Tailnet to connect to tsiam (`ip`) and request tokens for `https://api.example.com` (`app`). Change `src` to match the users or tags that should be allowed to request tokens. See [Audience authorization](/docs/audience-authorization) for details.
 
 ## Step 5: Request a token
 
-From a machine on your Tailnet that the grant allows, use tsiam's full MagicDNS name, replacing `tailnet-name` with your Tailnet's DNS name, shown on the DNS page of the admin console.
+From an allowed machine on your Tailnet, request a token using tsiam's full MagicDNS name (replace `tailnet-name` with your Tailnet's DNS name):
 
-> The short name `https://tsiam` doesn't work, because the TLS certificate is only valid for the full name.
+> The short name `https://tsiam` does not work because the TLS certificate is only valid for the full name.
 
 ```sh
 curl -X POST "https://tsiam.tailnet-name.ts.net/token?resource=https://api.example.com" \
@@ -177,7 +177,7 @@ Use the `access_token` as a Bearer token when calling the target service.
 
 ## Next steps
 
-- [Getting a token](/docs/getting-a-token) — full token request reference and code examples
-- [Audience authorization](/docs/audience-authorization) — control which machines can request which audiences
-- [Configuration](/docs/configuration) — all configuration options
-- [Tailscale Funnel](/docs/tailscale-funnel) — expose OIDC endpoints publicly for external token verification
+- [Getting a token](/docs/getting-a-token): full token request reference and code examples
+- [Audience authorization](/docs/audience-authorization): control which machines can request which audiences
+- [Configuration](/docs/configuration): all configuration options
+- [Tailscale Funnel](/docs/tailscale-funnel): expose OIDC endpoints publicly for external token verification

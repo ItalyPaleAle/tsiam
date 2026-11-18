@@ -22,11 +22,9 @@ import (
 	"github.com/italypaleale/tsiam/pkg/metrics"
 )
 
-// Max size for request bodies.
-// 1KB
-const maxBodySize = 1 << 10
+// Max size for request bodies
+const maxBodySize = 1 << 10 // 1KB
 
-// Default time that Run waits for active requests to complete during shutdown
 const defaultShutdownTimeout = 5 * time.Second
 
 // Server is the HTTP API server
@@ -36,7 +34,6 @@ type Server struct {
 	running atomic.Bool
 	wg      sync.WaitGroup
 
-	// Time that Run waits for active requests to complete during shutdown
 	shutdownTimeout time.Duration
 
 	appMetrics *metrics.AppMetrics
@@ -48,8 +45,7 @@ type Server struct {
 	// TSNet server instance
 	tsnetServer *tsnetserver.TSNetServer
 
-	// Request-time tsnet dependencies, broken out so handler tests can supply mocks
-	// In production both delegate to tsnetServer
+	// Request-time tsnet dependencies, overridden in tests
 	whoIs    func(r *http.Request) (tsnetserver.TailscaleWhoIs, error)
 	hostname func() string
 
@@ -111,9 +107,8 @@ func (s *Server) initAppServer() {
 	// Register routes
 	// Note: we do not enable CORS in the server on purpose, as we don't want browsers to make direct connections
 	// If needed, it can be added to public endpoints (.well-known/*) in the future
-	// httpserver.UseFunc wraps the handler with each middleware in turn, so the last middleware listed is the outermost and runs first
+	// Middlewares are applied in reverse order (last runs first)
 	mux.HandleFunc("POST /token", httpserver.UseFunc(s.handlePostToken, requireEmptyBody, requireNoBrowser, requireNotFunneledRequest, tokenRateLimit(cfg.Tokens.RateLimitPerMinute)))
-	// The public endpoints share a single limiter, so a client's budget covers both
 	publicLimit := rateLimit(publicRateLimitPerSecond, time.Second)
 	mux.HandleFunc("GET /.well-known/jwks.json", httpserver.UseFunc(s.handleGetJWKS, publicLimit))
 	mux.HandleFunc("GET /.well-known/openid-configuration", httpserver.UseFunc(s.handleGetOpenIDConfiguration, publicLimit))
@@ -131,34 +126,30 @@ func (s *Server) initAppServer() {
 		)
 	}
 
-	// httpserver.Use wraps the handler with each middleware in turn, so the first middleware listed is the innermost and the last one runs first
+	// Middlewares are applied in reverse order (last runs first)
 	middlewares := []httpserver.Middleware{
-		// Recover from panics in handlers, inside logging and tracing so the panic's log has the request's trace
+		// Recover from panics inside handlers
 		httpserver.MiddlewareRecoverPanics(errInternal),
-		// Wrap r.Body with MaxBytesReader as a backstop against chunked / no-Content-Length attacks that bypass the upfront check, in case a future handler does read the body
+		// Limit request body reads
 		httpserver.MiddlewareMaxBodySize(maxBodySize),
-		// Record the IP of Funnel clients in the request's span and log, which otherwise only show the Tailscale relay
+		// Record the client IP for Funnel requests
 		annotateFunnelClient,
 		// Log requests
 		sloghttp.NewWithFilters(slog.Default(), filters...),
-		// Wrap with OpenTelemetry HTTP instrumentation for metrics and tracing
-		// Funnel clients are unauthenticated, so their requests start a new trace that only links the caller's: otherwise they could choose the trace ID, and turn sampling off or force it
+		// OpenTelemetry metrics and tracing (Funnel requests are treated as public endpoints so they start a new trace)
 		otelhttp.NewMiddleware("server",
 			otelhttp.WithServerName(net.JoinHostPort(s.hostname(), "443")),
 			otelhttp.WithPublicEndpointFn(isFunneledRequest),
 		),
-		// Clients could set this header to choose the address that otelhttp records in traces
 		removeForwardedFor,
-		// Only the public endpoints are reachable over Funnel, and Funnel requests are rate-limited before they're logged or traced
-		// It has its own limiter, because sharing the routes' limiter would count allowed Funnel requests twice
+		// Restrict and rate-limit Funnel requests before logging and tracing
 		requireFunnelAllowed(rateLimit(publicRateLimitPerSecond, time.Second)),
-		// Reject oversized requests upfront based on Content-Length so we never read or TLS-decrypt the body
+		// Reject requests with Content-Length over maxBodySize
 		rejectOversizedRequest(maxBodySize),
-		// Reject requests for other hosts before they're logged or traced
+		// Reject requests with an unexpected Host header
 		requireKnownHost(s.hostname),
-		// Set on every response, including errors returned by the middlewares above
 		setNoSniff,
-		// Recover from panics in the middlewares above
+		// Recover from panics in outer middlewares
 		httpserver.MiddlewareRecoverPanics(errInternal),
 	}
 
@@ -200,10 +191,8 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
-// Stops the app server, waiting up to shutdownTimeout for active requests to complete
-// After that, it closes the connections that are still open, which also cancels their requests' contexts, so handlers stop using the tsnet server and the metrics, which are shut down after Run returns
+// Gracefully stops the HTTP server, closing remaining connections if the timeout expires
 func (s *Server) stopAppServer(parentCtx context.Context) {
-	// The parent context is already canceled at this point, but it can carry values for logging
 	ctx := context.WithoutCancel(parentCtx)
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, s.shutdownTimeout)
@@ -236,7 +225,6 @@ func (s *Server) startAppServer(ctx context.Context, appSrvErrCh chan<- error) (
 
 	// Create the listener if we don't have one already
 	// The tsnet listener is already TLS-wrapped
-	// A listener created here is closed when the server stops, so it's not stored in s.tsListener, and the next call to Run creates a new one
 	ln := s.tsListener
 	if ln == nil {
 		// Set the ConnContext function which augments the context with information about the tsnet connection
@@ -267,7 +255,6 @@ func (s *Server) startAppServer(ctx context.Context, appSrvErrCh chan<- error) (
 	}
 
 	// Start the HTTP server in a background goroutine
-	// Tracked by s.wg so Run does not return while Serve is still draining connections after shutdown
 	s.wg.Go(func() { //nolint:contextcheck
 		defer ln.Close() //nolint:errcheck
 
@@ -284,7 +271,7 @@ func (s *Server) startAppServer(ctx context.Context, appSrvErrCh chan<- error) (
 	return nil
 }
 
-// Returns the issuer URL emitted in the JWT `iss` claim and as the `issuer` field of the OIDC discovery document
+// Returns the token issuer URL
 func (s *Server) tokenIssuer() string {
 	return "https://" + s.hostname()
 }

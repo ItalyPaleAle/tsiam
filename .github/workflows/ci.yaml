@@ -54,8 +54,6 @@ jobs:
         run: |
           make test-race
 
-      # Runs last so a newly published advisory doesn't hide lint and test results
-      # Release binaries link different modules per OS, so `make vulncheck` scans each target OS separately
       - name: Check for known vulnerabilities
         run: |
           make vulncheck

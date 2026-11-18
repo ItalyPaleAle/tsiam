@@ -96,8 +96,6 @@ func TestNewSigningKey(t *testing.T) {
 	})
 
 	t.Run("generated key is private", func(t *testing.T) {
-		// Every supported algorithm must produce a private key (carries the `d` parameter),
-		// otherwise the service could not sign tokens
 		for _, alg := range []string{"RS256", "ES256", "ES384", "ES512", "EdDSA"} {
 			t.Run(alg, func(t *testing.T) {
 				key, err := NewSigningKey(alg, "")
@@ -173,7 +171,6 @@ func TestValidateSigningKey(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	// Returns a new key for the algorithm, after applying fn to it
 	newKey := func(t *testing.T, alg string, fn func(key jwk.Key) jwk.Key) jwk.Key {
 		t.Helper()
 		key, err := NewSigningKey(alg, "")

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Builds every tsiam binary for a single release target, then packages them into an archive.
+# Builds tsiam binaries for a single release target and packages them into an archive
 #
 # Usage:
 #   BUILD_ID=<id> [BUILD_VERSION=<version>] [BUILD_LDFLAGS=<flags>] [CYCLONEDX_GOMOD=<path>] scripts/build-binaries.sh <target>
@@ -12,18 +12,16 @@
 #   freebsd-amd64  freebsd-arm64
 #
 # Binaries are staged in .bin/tsiam-<BUILD_ID>-<target>, and the archive is written to .out
-# Windows targets produce a .zip, every other target a .tar.gz
-# When CYCLONEDX_GOMOD is the path to cyclonedx-gomod, a CycloneDX SBOM for each binary is also written to .out, as tsiam-<BUILD_ID>-<target>-<binary>.cdx.json
+# Windows targets produce a .zip, other targets produce a .tar.gz
+# When CYCLONEDX_GOMOD is set, a CycloneDX SBOM for each binary is written to .out/tsiam-<BUILD_ID>-<target>-<binary>.cdx.json
 
 set -euo pipefail
 
-# Resolved before anything changes the working directory
 script_path="${BASH_SOURCE[0]}"
 
-# Release binaries are statically linked
 export CGO_ENABLED=0
 
-# Every binary that ships in a release archive, as "<name>:<package>"
+# Binaries included in release archives ("<name>:<package>")
 BINARIES=(
   "tsiam:./cmd"
 )
@@ -46,7 +44,6 @@ if [[ -z "${BUILD_ID:-}" ]]; then
   exit 1
 fi
 
-# Extension of the executables, and format of the archive: only Windows differs
 ext=""
 archive="tar.gz"
 goarm=""
@@ -69,7 +66,7 @@ case "${target}" in
     ;;
 esac
 
-# Run from the root of the repository, so the paths below do not depend on where the script was invoked from
+# Run from the repository root
 cd "$(dirname "${script_path}")/.."
 
 name="tsiam-${BUILD_ID}-${target}"
@@ -92,8 +89,7 @@ for entry in "${BINARIES[@]}"; do
       "${pkg}"
 done
 
-# One SBOM per binary, generated from the module list that Go embeds in it, so it matches exactly what was compiled for this target
-# cyclonedx-gomod reads the build settings from the binary, but takes the GOOS and GOARCH in package URLs from `go env`, so they must be set to match the build
+# Generate a CycloneDX SBOM per binary
 if [[ -n "${CYCLONEDX_GOMOD:-}" ]]; then
   for entry in "${BINARIES[@]}"; do
     binary="${entry%%:*}"

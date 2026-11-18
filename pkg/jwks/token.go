@@ -14,19 +14,15 @@ import (
 	"github.com/italypaleale/tsiam/pkg/buildinfo"
 )
 
-// How far nbf is set in the past, so verifiers with a clock that is slightly behind accept tokens right away
+// Clock skew leeway for the nbf claim
 const notBeforeLeeway = 5 * time.Second
 
 type TokenRequest struct {
-	Issuer   string
-	Audience string
-	Lifetime time.Duration
-	// Value placed in the JWT `sub` claim
-	Subject string
-	// Resolved Tailscale identity for the caller, emitted as the payload of the identity claim
-	Whois tsnetserver.TailscaleWhoIs
-	// Name of the identity claim
-	// Defaults to buildinfo.AppNamespace when empty
+	Issuer    string
+	Audience  string
+	Lifetime  time.Duration
+	Subject   string
+	Whois     tsnetserver.TailscaleWhoIs
 	ClaimName string
 }
 

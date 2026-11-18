@@ -46,7 +46,7 @@ func getKey(ctx context.Context) (jwk.Key, error) {
 	return key, nil
 }
 
-// Loads the key from storage, or generates and stores a new one if the storage doesn't contain a key yet
+// Loads the signing key from storage, or creates and stores a new one if none exists
 func loadOrCreateKey(ctx context.Context, ks keystorage.KeyStorage) (jwk.Key, error) {
 	key, err := ks.Load(ctx)
 	switch {
@@ -68,7 +68,6 @@ func loadOrCreateKey(ctx context.Context, ks keystorage.KeyStorage) (jwk.Key, er
 	case err == nil:
 		return key, nil
 	case keystorage.IsKeyExistError(err):
-		// Another instance stored its key in the meantime, so use that one instead
 		slog.InfoContext(ctx, "Another instance stored a signing key first, using that key instead")
 		key, err = ks.Load(ctx)
 		if err != nil {
@@ -136,7 +135,6 @@ func getAzureKeyVaultCredentials(tenantId string, clientId string, clientSecret 
 
 	switch {
 	case clientSecret != "":
-		// Config validation makes sure that the tenant and client IDs are set too
 		slog.Info("Authenticating with Azure Key Vault using a client secret", slog.String("tenantId", tenantId), slog.String("clientId", clientId))
 		creds, err := azidentity.NewClientSecretCredential(tenantId, clientId, clientSecret, &azidentity.ClientSecretCredentialOptions{
 			ClientOptions: clientOpts,
@@ -147,8 +145,7 @@ func getAzureKeyVaultCredentials(tenantId string, clientId string, clientSecret 
 		return creds, nil
 
 	case clientId != "":
-		// DefaultAzureCredential only reads the client ID from the AZURE_CLIENT_ID environment variable, so a client ID in the config needs its own credential
-		// The AKS workload identity webhook sets AZURE_FEDERATED_TOKEN_FILE, and everywhere else the client ID selects a user-assigned managed identity
+		// Use workload identity if AZURE_FEDERATED_TOKEN_FILE is set (e.g. on AKS), otherwise use a user-assigned managed identity
 		if os.Getenv("AZURE_FEDERATED_TOKEN_FILE") != "" {
 			slog.Info("Authenticating with Azure Key Vault using workload identity", slog.String("tenantId", tenantId), slog.String("clientId", clientId))
 			creds, err := azidentity.NewWorkloadIdentityCredential(&azidentity.WorkloadIdentityCredentialOptions{

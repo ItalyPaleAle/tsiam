@@ -23,19 +23,16 @@ import (
 
 const tsiamHeaderName = "X-Tsiam"
 
-// Indirection over tsnetserver.IsFunneledRequest and tsnetserver.FunnelClientIP so tests can simulate a funneled request without going through the real tsnet ConnContext (the funnel context key is unexported upstream)
+// Overridden in tests
 var (
 	isFunneledRequest = tsnetserver.IsFunneledRequest
 	funnelClientIP    = tsnetserver.FunnelClientIP
 )
 
-// Maximum number of requests per second accepted from a single client on the public endpoints (`/.well-known/*`), which are reachable from the internet when Funnel is enabled
+// Rate limit (requests/sec) per client for public endpoints
 const publicRateLimitPerSecond = 10
 
-// Rejects with 413 when the request's Content-Length exceeds maxSize, before any handler runs
-// httpserver.MiddlewareMaxBodySize wraps r.Body with MaxBytesReader, but that only enforces the cap when the handler actually reads the body
-// /token uses query parameters and never reads its body, so an attacker could otherwise force the server to receive arbitrary amounts of TLS-encrypted body data and pay the decrypt + keep-alive-drain cost
-// This middleware short-circuits that by trusting Content-Length and closing the connection on requests that promise more than maxSize
+// Rejects requests whose Content-Length exceeds maxSize before reading the body
 func rejectOversizedRequest(maxSize int64) httpserver.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +47,7 @@ func rejectOversizedRequest(maxSize int64) httpserver.Middleware {
 	}
 }
 
-// Returns a middleware that limits each caller to rpm requests per minute, keyed on the caller's IP address (see rateLimitKey)
+// Rate-limits requests per minute per client IP
 func tokenRateLimit(rpm int) httpserver.MiddlewareFunc {
 	if rpm <= 0 {
 		// Disable the middleware
@@ -60,7 +57,6 @@ func tokenRateLimit(rpm int) httpserver.MiddlewareFunc {
 	return rateLimit(rpm, time.Minute)
 }
 
-// Returns a middleware that limits each client to limit requests in a sliding window, keyed on the client's IP address (see rateLimitKey)
 func rateLimit(limit int, window time.Duration) httpserver.MiddlewareFunc {
 	rl := httprate.LimitBy(limit, window, func(r *http.Request) (string, error) {
 		return rateLimitKey(r), nil
@@ -70,18 +66,15 @@ func rateLimit(limit int, window time.Duration) httpserver.MiddlewareFunc {
 	}
 }
 
-// Returns the key used to rate-limit the client that sent the request
-// This server is only ever reached directly through tsnet, never behind a reverse proxy or load balancer, so r.RemoteAddr is the caller's real Tailscale IP and is trusted here
-// Funnel connections are the exception: their r.RemoteAddr is the Tailscale relay, which would put every public client in the same bucket, so the original client IP from the Funnel connection is used instead
+// Returns the client IP key for rate limiting
 func rateLimitKey(r *http.Request) string {
-	// Public clients reached through Funnel have their IPv6 addresses canonicalized to the /64 prefix, so a single client cannot dodge the limit by rotating addresses within its subnet
+	// For Funnel requests, use the original client IP (canonicalizing IPv6 to /64) instead of the Tailscale relay address
 	ip := funnelClientIP(r)
 	if ip != "" {
 		return httprate.CanonicalizeIP(ip)
 	}
 
-	// Tailnet peers use their full address instead
-	// Tailscale assigns each node a single IPv6 address, and many nodes in a tailnet share the same /64 prefix, so masking would put every IPv6 caller in one bucket
+	// For Tailnet peers, use the full node IP because nodes in a tailnet share the same IPv6 /64 prefix
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
@@ -94,7 +87,7 @@ func rateLimitKey(r *http.Request) string {
 
 	addr = addr.Unmap().WithZone("")
 
-	// IPv6 addresses in the Tailscale 4to6 range map 1:1 to the node's IPv4 address, so a dual-stack node gets a single bucket
+	// Map Tailscale 4to6 addresses back to the node's IPv4 address
 	v4, ok := tsaddr.Tailscale6to4(addr)
 	if ok {
 		return v4.String()
@@ -103,9 +96,7 @@ func rateLimitKey(r *http.Request) string {
 	return addr.String()
 }
 
-// Rejects any request that carries a body (Content-Length > 0, or chunked encoding with any bytes available)
-// Applied to /token which only consumes query parameters; reading 1 byte catches clients that omit Content-Length (chunked transfer-encoding) and stream a body anyway
-// Requests whose body can't be read, such as a malformed chunked body, are rejected too
+// Rejects requests that include a body
 func requireEmptyBody(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.ContentLength > 0 {
@@ -113,15 +104,12 @@ func requireEmptyBody(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// The server always sets a body on incoming requests, but requests created in code can have none
 		if r.Body == nil {
 			next(w, r)
 			return
 		}
 
-		// Probe the body for anything chunked/transfer-encoded that bypassed the Content-Length check
-		// We only need to know "is there *any* byte"; the MaxBytesReader middleware caps the actual read at maxBodySize so a malicious chunked stream cannot make this read consume unbounded memory
-		// io.ReadFull keeps reading until it gets the byte or an error, since a single Read can return neither
+		// Read 1 byte to detect chunked bodies when Content-Length is not set
 		buf := make([]byte, 1)
 		_, err := io.ReadFull(r.Body, buf)
 		var maxBytesErr *http.MaxBytesError
@@ -137,15 +125,12 @@ func requireEmptyBody(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// Responds with an error and closes the connection, so the server doesn't read the rest of the body
 func rejectRequestBody(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Connection", "close")
 	http.Error(w, msg, status)
 }
 
-// Returns a middleware that responds with 404 to every Funnel request except GET or HEAD requests for the public endpoints
-// It runs before logging, tracing, and routing, so requests from the internet are cheap to reject
-// Every Funnel request, including rejected ones, counts against limit
+// Rate-limits Funnel requests and allows only GET/HEAD on public endpoints
 func requireFunnelAllowed(limit httpserver.MiddlewareFunc) httpserver.Middleware {
 	return func(next http.Handler) http.Handler {
 		limited := limit(func(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +154,6 @@ func requireFunnelAllowed(limit httpserver.MiddlewareFunc) httpserver.Middleware
 	}
 }
 
-// Returns true if the path is reachable over Funnel
 func isAllowedFunnelPath(path string) bool {
 	switch path {
 	case "/.well-known/jwks.json", "/.well-known/openid-configuration":
@@ -179,9 +163,7 @@ func isAllowedFunnelPath(path string) bool {
 	}
 }
 
-// Returns a middleware that responds with 421 to requests whose Host header isn't tsiam's own hostname
-// Clients reach tsiam through its MagicDNS name, so other values only come from clients that make them up, and would end up in logs and traces
-// The check is skipped while the hostname is unknown
+// Rejects requests whose Host header does not match tsiam's hostname
 func requireKnownHost(hostname func() string) httpserver.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -196,9 +178,7 @@ func requireKnownHost(hostname func() string) httpserver.Middleware {
 	}
 }
 
-// Returns true if the value of a Host header is hostname, or its short name (the first label)
-// The TLS certificate is only valid for the full name, but clients that skip verification can use the short name
-// The port is optional, and it must be 443 when present, since that's the only port tsiam listens on
+// Checks if host matches hostname or its short name (with optional port 443)
 func isKnownHost(host string, hostname string) bool {
 	h, port, err := net.SplitHostPort(host)
 	if err == nil {
@@ -214,7 +194,6 @@ func isKnownHost(host string, hostname string) bool {
 	return strings.EqualFold(host, hostname) || strings.EqualFold(host, shortName)
 }
 
-// Stops browsers from interpreting responses as a content type other than the declared one
 func setNoSniff(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -234,8 +213,7 @@ func requireNotFunneledRequest(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// This middleware is used to ensure that requests cannot be made directly by browsers
-// It is helpful to prevent CSRF-like attacks, in which a web browser (including one visiting a malicious or compromised website, same or cross-origin) fetches a token from tsiam for the identity of the node the browser is running in
+// Rejects requests from web browsers to prevent CSRF attacks
 func requireNoBrowser(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := validateNoBrowser(r)
@@ -257,14 +235,12 @@ var browserHeaders = []string{
 }
 
 func validateNoBrowser(r *http.Request) error {
-	// First, require the presence of the X-Tsiam header
-	// While users are encouraged to set the value to 1, we accept anything that's non-empty
+	// Require a non-empty X-Tsiam header
 	if strings.TrimSpace(r.Header.Get(tsiamHeaderName)) == "" {
 		return errors.New("missing header X-Tsiam")
 	}
 
-	// These headers are set by browsers and are a very reliable indication that there's a web browser making the request
-	// Header.Get returns only the first value, so a request could hide a header behind an empty one; instead, any occurrence of the header is rejected, even with an empty value
+	// Reject requests that include browser headers (even if empty)
 	for _, h := range browserHeaders {
 		_, ok := r.Header[h]
 		if ok {
@@ -275,8 +251,7 @@ func validateNoBrowser(r *http.Request) error {
 	return nil
 }
 
-// Removes the X-Forwarded-For header, which otelhttp would use as the client's address in traces
-// tsiam is reached directly through tsnet, never through a proxy that sets the header, so any value comes from the client itself
+// Strips X-Forwarded-For so otelhttp uses the tsnet connection address
 func removeForwardedFor(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Header.Del("X-Forwarded-For")
@@ -284,14 +259,11 @@ func removeForwardedFor(next http.Handler) http.Handler {
 	})
 }
 
-// Records the IP of Funnel clients in the request's span and log
-// For Funnel requests, the connection's address is the Tailscale relay, so traces and logs would otherwise only show the relay
-// It must run inside otelhttp and sloghttp, which create the span and the log attributes that it updates
+// Sets the original Funnel client IP on the request span and log
 func annotateFunnelClient(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := funnelClientIP(r)
 		if ip != "" {
-			// otelhttp sets client.address from the connection when the span starts, so this replaces it
 			trace.SpanFromContext(r.Context()).SetAttributes(semconv.ClientAddress(ip))
 			sloghttp.AddCustomAttributes(r, slog.String("funnelClientIp", ip))
 		}

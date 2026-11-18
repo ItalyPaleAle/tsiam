@@ -21,11 +21,8 @@ import (
 )
 
 const (
-	// Format version of the wrapped key file
 	wrappedKeyEnvelopeVersion = 1
-
-	// Additional authenticated data for AES-GCM, which ties the ciphertext to this file format
-	wrappedKeyEnvelopeAAD = "tsiam/AzureKeyVaultKeys/v1"
+	wrappedKeyEnvelopeAAD     = "tsiam/AzureKeyVaultKeys/v1"
 )
 
 // AzureKeyVaultKeyClient is an interface for the Azure Key Vault Keys client
@@ -35,10 +32,8 @@ type AzureKeyVaultKeyClient interface {
 	UnwrapKey(ctx context.Context, keyName string, keyVersion string, parameters azkeys.KeyOperationParameters, options *azkeys.UnwrapKeyOptions) (azkeys.UnwrapKeyResponse, error)
 }
 
-// AzureKeyVaultKeyStorage implements KeyStorage using Azure Key Vault Keys for wrapping
-// The signing key is stored on disk in encrypted form and decrypted on load
-// The signing key is encrypted locally with a random data encryption key (DEK) using AES-256-GCM, and only the DEK is wrapped with the Key Vault key using RSA-OAEP-256
-// RSA-OAEP can only encrypt a few hundred bytes, which is less than a serialized private JWK for most algorithms
+// AzureKeyVaultKeyStorage implements KeyStorage using envelope encryption with Azure Key Vault Keys
+// The signing key is encrypted locally with AES-256-GCM using a random DEK, and the DEK is wrapped with the Key Vault key using RSA-OAEP-256
 type AzureKeyVaultKeyStorage struct {
 	client      AzureKeyVaultKeyClient
 	keyName     string
@@ -46,28 +41,18 @@ type AzureKeyVaultKeyStorage struct {
 	storagePath string
 }
 
-// On-disk format of the wrapped signing key
 type wrappedKeyEnvelope struct {
-	// Format version
-	Version int `json:"v"`
-	// Version of the Key Vault key that wrapped the DEK
-	// Unwrapping uses this version, so the file can still be read after the key is rotated in Key Vault
+	Version    int    `json:"v"`
 	KeyVersion string `json:"keyVersion"`
-	// DEK wrapped with the Key Vault key using RSA-OAEP-256
 	WrappedKey []byte `json:"wrappedKey"`
-	// Signing key (JWK as JSON) encrypted with the DEK using AES-256-GCM, with the nonce prepended
 	Ciphertext []byte `json:"ciphertext"`
 }
 
-// isAzureKeyVaultKeyVersionUnpinned returns true if keyVersion is empty or "latest"
 func isAzureKeyVaultKeyVersionUnpinned(keyVersion string) bool {
 	return keyVersion == "" || strings.ToLower(keyVersion) == "latest"
 }
 
 // NewAzureKeyVaultKeyStorage creates a new Azure Key Vault Key-based key storage
-// The key is stored on disk in wrapped form and unwrapped using Azure Key Vault on load
-// keyVersion is the version of the Key Vault key used to wrap new signing keys
-// If keyVersion is empty or "latest", the latest version is used
 func NewAzureKeyVaultKeyStorage(vaultURL string, keyName string, keyVersion string, storagePath string, credential azcore.TokenCredential) (*AzureKeyVaultKeyStorage, error) {
 	if vaultURL == "" {
 		return nil, errors.New("vaultURL cannot be empty")
@@ -101,7 +86,6 @@ func NewAzureKeyVaultKeyStorageWithClient(client AzureKeyVaultKeyClient, keyName
 		return nil, errors.New("storagePath cannot be empty")
 	}
 
-	// The Key Vault API selects the latest version when the version is empty
 	if isAzureKeyVaultKeyVersionUnpinned(keyVersion) {
 		keyVersion = ""
 	}
@@ -131,14 +115,13 @@ func (a *AzureKeyVaultKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 		return nil, fmt.Errorf("failed to read wrapped key file: %w", err)
 	}
 
-	// A zero-byte file is treated as missing rather than an unwrap error
-	// tsiam never writes an empty file, so this is logged as a warning: the new key has a different ID, and tokens signed with the old key stop working
+	// Treat an empty file as missing
 	if len(data) == 0 {
 		slog.WarnContext(ctx, "Wrapped signing key file is empty, so a new signing key is generated and replaces it", slog.String("path", a.storagePath))
 		return nil, errKeyNoExist
 	}
 
-	// Files written by tsiam v0.5.0 and earlier contain the raw RSA-OAEP ciphertext of the JWK, which is never valid JSON
+	// Legacy files (tsiam v0.5.0 and earlier) contain raw RSA-OAEP ciphertext rather than JSON
 	var (
 		key        jwk.Key
 		keyVersion string
@@ -159,8 +142,7 @@ func (a *AzureKeyVaultKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 		slog.String("keyId", keyID(key)),
 	)
 
-	// Files that don't record the key version are unwrapped with the configured or latest version, and would stop unwrapping once the key is rotated
-	// The unwrap succeeded, so rewrite the file now to record the version
+	// Rewrite legacy or unpinned files so the key version is recorded
 	if isAzureKeyVaultKeyVersionUnpinned(keyVersion) {
 		slog.WarnContext(ctx, "Wrapped signing key file is not pinned to a version of the Azure Key Vault key, so it would fail to unwrap after the key is rotated - rewriting it",
 			slog.String("path", a.storagePath),
@@ -175,8 +157,6 @@ func (a *AzureKeyVaultKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 	return key, nil
 }
 
-// Loads a key from a versioned envelope
-// Returns the key and the Key Vault key version recorded in the envelope
 func (a *AzureKeyVaultKeyStorage) loadEnvelope(ctx context.Context, data []byte) (jwk.Key, string, error) {
 	var env wrappedKeyEnvelope
 	err := json.Unmarshal(data, &env)
@@ -187,7 +167,6 @@ func (a *AzureKeyVaultKeyStorage) loadEnvelope(ctx context.Context, data []byte)
 		return nil, "", fmt.Errorf("unsupported wrapped key file format version: %d", env.Version)
 	}
 
-	// The recorded version should always be set, unless the file was modified by hand
 	keyVersion := env.KeyVersion
 	if isAzureKeyVaultKeyVersionUnpinned(keyVersion) {
 		keyVersion = a.keyVersion
@@ -218,8 +197,7 @@ func (a *AzureKeyVaultKeyStorage) loadEnvelope(ctx context.Context, data []byte)
 	return key, env.KeyVersion, nil
 }
 
-// Loads a key stored in the format used by tsiam v0.5.0 and earlier, where the JWK was wrapped directly with the Key Vault key
-// These files don't record the version of the Key Vault key, so they're unwrapped with the configured version, or the latest one
+// Loads a legacy key file (tsiam v0.5.0 and earlier) where the JWK was wrapped directly with RSA-OAEP
 func (a *AzureKeyVaultKeyStorage) loadLegacy(ctx context.Context, data []byte) (jwk.Key, error) {
 	plaintext, err := a.unwrap(ctx, a.keyVersion, data)
 	if err != nil {
@@ -235,7 +213,6 @@ func (a *AzureKeyVaultKeyStorage) loadLegacy(ctx context.Context, data []byte) (
 	return key, nil
 }
 
-// Unwraps data with the Key Vault key using RSA-OAEP-256
 func (a *AzureKeyVaultKeyStorage) unwrap(ctx context.Context, keyVersion string, data []byte) ([]byte, error) {
 	params := azkeys.KeyOperationParameters{
 		Algorithm: new(azkeys.EncryptionAlgorithmRSAOAEP256),
@@ -252,13 +229,11 @@ func (a *AzureKeyVaultKeyStorage) unwrap(ctx context.Context, keyVersion string,
 	return resp.Result, nil
 }
 
-// Store saves the signing key to disk in wrapped (encrypted) form using Azure Key Vault, if the file doesn't exist yet
+// Store saves the wrapped signing key to disk if the file does not already exist
 func (a *AzureKeyVaultKeyStorage) Store(ctx context.Context, key jwk.Key) error {
 	return a.store(ctx, key, false)
 }
 
-// Saves the signing key to disk in wrapped (encrypted) form using Azure Key Vault
-// If overwrite is false and the file exists, it returns errKeyExists
 func (a *AzureKeyVaultKeyStorage) store(ctx context.Context, key jwk.Key, overwrite bool) error {
 	// Marshal the key to JSON
 	data, err := json.Marshal(key)
@@ -267,7 +242,7 @@ func (a *AzureKeyVaultKeyStorage) store(ctx context.Context, key jwk.Key, overwr
 	}
 	defer clear(data)
 
-	// Encrypt the signing key with a new, random DEK
+	// Encrypt the signing key with a random DEK
 	dek := make([]byte, 32)
 	_, err = rand.Read(dek)
 	if err != nil {
@@ -293,7 +268,6 @@ func (a *AzureKeyVaultKeyStorage) store(ctx context.Context, key jwk.Key, overwr
 		return errors.New("wrapped key result is nil")
 	}
 
-	// Record the exact key version that Key Vault used, which matters when the configured version is empty (latest)
 	var keyVersion string
 	if resp.KID != nil {
 		keyVersion = resp.KID.Version()
@@ -312,11 +286,9 @@ func (a *AzureKeyVaultKeyStorage) store(ctx context.Context, key jwk.Key, overwr
 		return fmt.Errorf("failed to encode wrapped key file: %w", err)
 	}
 
-	// Atomic write so a torn write cannot leave an unrecoverable wrapped-ciphertext blob on disk
 	if overwrite {
 		err = fsutil.WriteFile(a.storagePath, out, keyFileMode)
 	} else {
-		// An existing empty file is replaced, since Load treats it as missing
 		err = fsutil.CreateFile(a.storagePath, out, keyFileMode, fsutil.WithReplaceEmpty())
 	}
 	if errors.Is(err, fs.ErrExist) {
@@ -335,19 +307,17 @@ func (a *AzureKeyVaultKeyStorage) store(ctx context.Context, key jwk.Key, overwr
 	return nil
 }
 
-// Encrypts plaintext with AES-256-GCM using a random nonce, which is prepended to the returned ciphertext
 func encryptWithDEK(dek []byte, plaintext []byte) ([]byte, error) {
 	aead, err := newDEKCipher(dek)
 	if err != nil {
 		return nil, err
 	}
 
-	// #nosec G407 -- NewGCMWithRandomNonce generates the nonce, so the nonce argument must be nil
+	// #nosec G407
 	ciphertext := aead.Seal(nil, nil, plaintext, []byte(wrappedKeyEnvelopeAAD))
 	return ciphertext, nil
 }
 
-// Decrypts ciphertext produced by encryptWithDEK
 func decryptWithDEK(dek []byte, ciphertext []byte) ([]byte, error) {
 	aead, err := newDEKCipher(dek)
 	if err != nil {
@@ -368,7 +338,6 @@ func newDEKCipher(dek []byte) (cipher.AEAD, error) {
 		return nil, fmt.Errorf("failed to create AES cipher: %w", err)
 	}
 
-	// The DEK is used for a single encryption, so a random nonce is safe
 	aead, err := cipher.NewGCMWithRandomNonce(block)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AES-GCM cipher: %w", err)

@@ -69,9 +69,9 @@ In this example:
 - Nodes tagged `tag:webserver` can only request tokens for `https://api.example.com`
 - Nodes tagged `tag:backend` can request tokens for both `https://api.example.com` and `sts.amazonaws.com`
 - The tsiam service node must be tagged `tag:tsiam`
-- `ip` lets the nodes connect to tsiam on port 443, and `app` sets the audiences they can request. You can leave out `ip` if another grant or ACL already allows the connection
+- `ip` allows connections to tsiam on port 443, and `app` sets the allowed audiences. You can omit `ip` if another rule already allows the connection
 
-Each value in the `italypaleale.me/tsiam` list must be a JSON object with only the `allowedAudiences` and `subject` fields. tsiam skips values that aren't (and logs a warning that includes the node ID).
+Each entry in `italypaleale.me/tsiam` must be a JSON object with only `allowedAudiences` and `subject`. Invalid entries are skipped with a warning in the logs.
 
 ## Shared workload identity via `subject`
 
@@ -104,11 +104,11 @@ tokens:
 
 All nodes tagged `tag:worker` will receive tokens with `"sub": "worker-fleet"`, regardless of their individual node IDs. This lets you bind a single IAM role or trust policy to the entire fleet.
 
-A node can match more than one grant for the same audience, for example a broad grant for all nodes and a role grant with a `subject`. tsiam looks at all the grants that allow the audience:
+If a node matches multiple grants for the same audience:
 
-- If none of them has a `subject`, `sub` is the node ID.
-- If they have the same `subject`, or only one of them has a `subject`, `sub` is that subject.
-- If they have different subjects, the request fails with `403 subject_conflict`, because picking one would depend on the order of the grants. Change the grants so that each node gets one subject for each audience.
+- If no grant sets `subject`, `sub` is the node ID.
+- If one grant sets `subject` (or multiple grants set the same `subject`), `sub` is that value.
+- If grants set different subjects, the request fails with `403 subject_conflict`.
 
 ## Nodes without capabilities
 

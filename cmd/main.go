@@ -24,12 +24,9 @@ import (
 )
 
 const (
-	// Maximum time to load or create the signing key at startup, which can involve Azure Key Vault
-	getKeyTimeout = 2 * time.Minute
-	// Maximum time to join the tailnet at startup, which includes waiting for interactive login
+	getKeyTimeout      = 2 * time.Minute
 	joinTailnetTimeout = 5 * time.Minute
-	// Maximum time for each step of the shutdown
-	shutdownTimeout = 5 * time.Second
+	shutdownTimeout    = 5 * time.Second
 )
 
 func main() {
@@ -67,7 +64,7 @@ func main() {
 		timeout: shutdownTimeout,
 	}
 
-	// Check the log level first: creating the logger would fail too, but its error doesn't name the configuration option
+	// Validate the log level before initializing the logger
 	err = cfg.Logs.Validate()
 	if err != nil {
 		slogkit.FatalError(initLogger, "Invalid configuration", err)
@@ -121,7 +118,6 @@ func main() {
 	shutdowns.Add(tracerShutdownFn)
 
 	// Get the signing key
-	// Startup steps that call external services have a timeout, so tsiam exits with an error instead of hanging
 	keyCtx, keyCancel := context.WithTimeout(ctx, getKeyTimeout)
 	signingKey, err := getKey(keyCtx)
 	keyCancel()
@@ -151,9 +147,7 @@ func main() {
 		StateDir:      cfg.GetTSNetStateDir(),
 		Ephemeral:     cfg.TSNet.Ephemeral,
 		AdvertiseTags: cfg.TSNet.AdvertiseTags,
-
-		// tsnet's internal logs are verbose, so they're only included with the debug log level
-		DebugLogging: strings.EqualFold(cfg.Logs.Level, "debug"),
+		DebugLogging:  strings.EqualFold(cfg.Logs.Level, "debug"),
 	})
 	tsnetCancel()
 	if err != nil {
@@ -200,8 +194,7 @@ func (s *shutdownManager) Add(fn servicerunner.Service) {
 	s.fns = append(s.fns, fn)
 }
 
-// Run calls the shutdown functions one at a time, in the reverse order they were added
-// Each function gets its own timeout, so one that hangs doesn't stop the others from running
+// Run calls each shutdown function in reverse order with its own timeout
 func (s *shutdownManager) Run(log *slog.Logger) {
 	for _, fn := range slices.Backward(s.fns) {
 		err := s.runOne(fn)
@@ -212,7 +205,6 @@ func (s *shutdownManager) Run(log *slog.Logger) {
 	s.fns = nil
 }
 
-// Runs a single shutdown function, converting panics into errors so the remaining functions still run
 func (s *shutdownManager) runOne(fn servicerunner.Service) (err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
@@ -227,8 +219,7 @@ func (s *shutdownManager) runOne(fn servicerunner.Service) (err error) {
 	return fn(ctx)
 }
 
-// Fatal logs the error, shuts down everything that was started, and exits with code 1
-// The error is logged before the logger is shut down, so it's exported like every other log
+// Fatal logs the error, runs shutdown functions, and exits with code 1
 func (s *shutdownManager) Fatal(log *slog.Logger, message string, err error) {
 	log.Error(message, slog.Any("error", err))
 	s.Run(log)

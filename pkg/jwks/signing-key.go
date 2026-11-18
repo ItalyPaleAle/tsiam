@@ -49,7 +49,7 @@ func NewSigningKey(alg string, curve string) (jwk.Key, error) {
 		return nil, fmt.Errorf("failed to set algorithm: %w", err)
 	}
 
-	// Mark the key for signatures, since some verifiers ignore keys in the JWKS that don't have "use": "sig"
+	// Set key usage
 	err = signingKey.Set(jwk.KeyUsageKey, jwk.ForSignature)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set key usage: %w", err)
@@ -58,10 +58,8 @@ func NewSigningKey(alg string, curve string) (jwk.Key, error) {
 	return signingKey, nil
 }
 
-// ValidateSigningKey returns an error if key can't be used to sign tokens
-// Keys can be provisioned outside of tsiam, so this checks everything that would otherwise only fail when signing a token or when a relying party verifies it
+// ValidateSigningKey checks that key is a valid private signing key for a supported algorithm
 func ValidateSigningKey(key jwk.Key) error {
-	// The algorithm must be one that tsiam supports, which also rules out "none" and symmetric algorithms
 	keyAlgorithm, ok := key.Algorithm()
 	if !ok {
 		return errors.New("signing key does not contain an algorithm")
@@ -77,7 +75,6 @@ func ValidateSigningKey(key jwk.Key) error {
 		return fmt.Errorf("signing key algorithm '%s' is not supported: supported algorithms: RS256, ES256, ES384, ES512, EdDSA", alg.String())
 	}
 
-	// The key type and curve must match the algorithm
 	if key.KeyType().String() != kty {
 		return fmt.Errorf("signing key has type '%s', which can't be used with algorithm '%s'", key.KeyType().String(), alg.String())
 	}
@@ -92,7 +89,6 @@ func ValidateSigningKey(key jwk.Key) error {
 		return errors.New("signing key must be private")
 	}
 
-	// Relying parties use the key ID to find the key in the JWKS
 	kid, _ := key.KeyID()
 	if kid == "" {
 		return errors.New("signing key does not contain a key ID ('kid')")
@@ -109,7 +105,7 @@ func ValidateSigningKey(key jwk.Key) error {
 	return nil
 }
 
-// KeyAlgorithm returns the name of the key's algorithm, or an empty string if it's not set
+// KeyAlgorithm returns the key's algorithm name, or an empty string if unset
 func KeyAlgorithm(key jwk.Key) string {
 	alg, ok := key.Algorithm()
 	if !ok {
@@ -118,8 +114,7 @@ func KeyAlgorithm(key jwk.Key) string {
 	return alg.String()
 }
 
-// Returns the key type and curve that the signing algorithm requires
-// The curve is empty for algorithms that don't use one
+// Returns the expected key type and curve for a signing algorithm
 func keyTypeForAlgorithm(alg string) (kty string, crv string, ok bool) {
 	switch alg {
 	case "RS256":
@@ -137,7 +132,7 @@ func keyTypeForAlgorithm(alg string) (kty string, crv string, ok bool) {
 	}
 }
 
-// Returns the curve of an EC or OKP key, or an empty string for other keys
+// Returns the curve of an EC or OKP key, or an empty string for other key types
 func keyCurve(key jwk.Key) string {
 	curveKey, ok := key.(interface {
 		Crv() (jwa.EllipticCurveAlgorithm, bool)

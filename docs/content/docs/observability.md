@@ -21,9 +21,9 @@ logs:
 
 ### Tailscale client logs
 
-With `logs.level: debug`, tsiam's logs also include the logs of its embedded Tailscale client (`scope=tsnet`), which help debug problems with joining the tailnet or with connections.
+With `logs.level: debug`, logs also include messages from the embedded Tailscale client (`scope=tsnet`).
 
-Like every Tailscale client, the embedded client also uploads its logs to Tailscale's log service, to help Tailscale with support. Set the environment variable `TS_NO_LOGS_NO_SUPPORT=true` to turn that off.
+By default, the embedded Tailscale client uploads logs to Tailscale's log service for support. Set `TS_NO_LOGS_NO_SUPPORT=true` to disable this.
 
 ## Exporting with OpenTelemetry
 
@@ -36,7 +36,7 @@ export OTEL_METRICS_EXPORTER=otlp
 export OTEL_TRACES_EXPORTER=otlp
 ```
 
-Telemetry has the service name `tsiam`, which you can change with `OTEL_SERVICE_NAME`. `OTEL_RESOURCE_ATTRIBUTES` adds other attributes, or overrides tsiam's, such as `service.version`.
+The default service name is `tsiam` (override with `OTEL_SERVICE_NAME`). Use `OTEL_RESOURCE_ATTRIBUTES` to set additional resource attributes.
 
 ### Metrics
 
@@ -44,9 +44,9 @@ Telemetry has the service name `tsiam`, which you can change with `OTEL_SERVICE_
 | --- | --- |
 | `tsiam_auths` | Number of tokens issued, with the audience in the `endpoint` attribute |
 
-tsiam also exports Go runtime metrics, and HTTP server metrics for every request.
+tsiam also exports Go runtime metrics and HTTP server metrics.
 
-To also add the name of the node that requested each token to `tsiam_auths`, in the `node` attribute, set [`metrics.includeNodeName`](/docs/configuration#metrics) to `true`. Every node name creates a new time series, so only enable it when your set of nodes is small and stable. Tailnets with ephemeral nodes, such as CI runners, would keep creating new series.
+Set [`metrics.includeNodeName`](/docs/configuration#metrics) to `true` to add the caller's node name (`node` attribute) to `tsiam_auths`. Only enable this when the set of nodes is small and stable, as each node name creates a new time series.
 
 To expose a Prometheus-compatible scrape endpoint instead of pushing metrics:
 
@@ -56,13 +56,11 @@ export OTEL_EXPORTER_PROMETHEUS_HOST=0.0.0.0
 export OTEL_EXPORTER_PROMETHEUS_PORT=9464
 ```
 
-This starts a `/metrics` endpoint on the configured port that Prometheus can scrape. The endpoint is on the machine's network, not on your tailnet. It listens on `localhost` by default, which isn't reachable from outside a container, so containers need `OTEL_EXPORTER_PROMETHEUS_HOST=0.0.0.0`.
+This exposes `/metrics` on the host network (not on the Tailnet). Because it listens on `localhost` by default, set `OTEL_EXPORTER_PROMETHEUS_HOST=0.0.0.0` when running in a container.
 
 ### Traces
 
-tsiam creates a span for every request. When a node on your tailnet sends a `traceparent` header, tsiam's span becomes part of the caller's trace.
-
-Requests through Tailscale Funnel always start a new trace, and the caller's span (if any) is only linked to it, so clients on the internet can't choose trace IDs or the sampling of their requests.
+tsiam creates a span for every request. Requests from your Tailnet that include a `traceparent` header continue the caller's trace. Requests via Tailscale Funnel always start a new trace and link to the caller's span.
 
 ## OpenTelemetry environment variables
 

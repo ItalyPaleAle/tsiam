@@ -29,7 +29,6 @@ func TestGetPublicJWKSAsJSON(t *testing.T) {
 				pub, ok := set.Key(0)
 				require.True(t, ok)
 
-				// kid and alg are preserved from the source key
 				wantKid, _ := key.KeyID()
 				gotKid, ok := pub.KeyID()
 				require.True(t, ok)
@@ -69,7 +68,6 @@ func TestGetPublicJWKSAsJSON(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, "sig", use)
 
-			// The source key is not modified
 			assert.False(t, key.Has(jwk.KeyUsageKey), "private=%v", private)
 		}
 	})
@@ -84,7 +82,6 @@ func TestGetPublicJWKSAsJSON(t *testing.T) {
 				data, err := GetPublicJWKSAsJSON(key)
 				require.NoError(t, err)
 
-				// The serialized JWKS must never carry the private `d` parameter
 				var raw map[string]any
 				err = json.Unmarshal(data, &raw)
 				require.NoError(t, err)

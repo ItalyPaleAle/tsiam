@@ -59,8 +59,8 @@ type ConfigLogs struct {
 
 // ConfigMetrics represents metrics configuration
 type ConfigMetrics struct {
-	// If true, the `tsiam_auths` metric includes the name of the node that requested each token, in the `node` attribute.
-	// Each node name creates a new time series, so only enable it when the set of nodes is small and stable
+	// If true, add the caller's node name (`node` attribute) to the `tsiam_auths` metric.
+	// Avoid enabling this with ephemeral nodes, as each node name creates a new time series.
 	// +default false
 	IncludeNodeName bool `yaml:"includeNodeName"`
 }
@@ -97,34 +97,24 @@ type ConfigTokens struct {
 	// +default false
 	AllowEmptyNodeCapability bool `yaml:"allowEmptyNodeCapability"`
 
-	// Maximum number of `/token` requests accepted per minute from a single client IP
-	// Set to 0 to disable rate limiting
-	// The key is the caller's Tailscale IP
+	// Maximum number of `/token` requests per minute per client IP (0 to disable)
 	// +default 60
 	RateLimitPerMinute int `yaml:"rateLimitPerMinute"`
 
-	// Controls what value is placed in the JWT `sub` claim
+	// Value to use for the JWT `sub` claim
 	// Allowed values:
-	//   - "nodeId" (default, recommended): the unique, stable Tailscale node identifier
-	//   - "name": the Tailscale node name, which is the MagicDNS name without trailing dot - See WARNING below
-	//   - "capability": the `subject` field of the Tailscale ACL grants that authorize the requested audience. Lets multiple nodes share a workload identity by setting the same `subject` in their grant. Falls back to the stable node ID when none of the matching grants has a `subject` set, or when the caller has no capability and `allowEmptyNodeCapability` is true
-	//
-	// WARNING for `"name"`: node names CAN be reused once a device is removed from the tailnet, which means a relying-party trust policy keyed on a node name can be silently re-targeted by whoever creates the next device with that name.
-	// Only choose `"name"` if you have relying parties that cannot be reconfigured to consume the stable node ID, and treat the node name as a soft identifier (e.g. require additional checks on the `nodeId` field of the identity claim).
-	//
-	// In all cases the full whois payload (node ID, name, tags, user, IPs) is also exposed under the identity claim, whose name is set by `claimName`.
+	//   - "nodeId" (default, recommended): stable Tailscale node ID
+	//   - "name": MagicDNS node name (can be reused if a device is removed and re-created)
+	//   - "capability": `subject` field from matching Tailscale ACL grants, falling back to the node ID if no matching grant sets `subject`
 	// +default "nodeId"
 	SubjectClaim string `yaml:"subjectClaim"`
 
-	// Name of the custom JWT claim that carries the caller's Tailscale identity (node ID, name, tags, user, IPs).
-	// Must not be one of the registered claims that tsiam sets itself (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`), or a claim that relying parties interpret (`azp`, `nonce`, `auth_time`, `acr`, `amr`, `cnf`, `act`, `may_act`, `scope`, `client_id`).
-	// Must be at most 256 characters.
-	// Note: This only renames the claim in issued tokens: the capability key in Tailscale ACL grants is always `italypaleale.me/tsiam`.
+	// Name of the custom JWT claim with the caller's Tailscale identity
+	// Note: Tailscale ACL grants always use `italypaleale.me/tsiam` regardless of this setting
 	// +default "italypaleale.me/tsiam"
 	ClaimName string `yaml:"claimName"`
 
-	// If true, the identity claim includes the caller's tsiam capability grants (the `italypaleale.me/tsiam` values from Tailscale ACL grants) under the `capMap` .field
-	// Tokens are signed but not encrypted, so when enabled every relying party can read the caller's `allowedAudiences` and `subject` grant values.
+	// If true, include the caller's tsiam capability grants under `capMap` in the identity claim
 	// +default false
 	IncludeCapabilities bool `yaml:"includeCapabilities"`
 }
@@ -196,7 +186,7 @@ type ConfigSigningKey struct {
 
 	// Signing algorithm to use.
 	// Supported values: RS256, ES256, ES384, ES512, EdDSA.
-	// Changing this doesn't replace a signing key that is already stored.
+	// Changing this does not replace an existing key.
 	// +default "ES256"
 	Algorithm string `yaml:"algorithm"`
 
@@ -235,8 +225,6 @@ type ConfigStorageAzureKeyVaultKeys struct {
 
 	// KeyVersion is the version of the key in Azure Key Vault used to wrap new signing keys.
 	// If empty or "latest", the latest version of the key is used.
-	// The wrapped signing key file records the version that wrapped it, and tsiam always unwraps it with that version.
-	// After rotating the key in Azure Key Vault, keep that version enabled.
 	KeyVersion string `yaml:"keyVersion,omitempty"`
 
 	// StoragePath is the path to store the wrapped signing key on disk.
@@ -245,17 +233,15 @@ type ConfigStorageAzureKeyVaultKeys struct {
 
 	// TenantID is the Microsoft Entra ID tenant ID for authentication.
 	// Required when `clientSecret` is set.
-	// Without `clientSecret` and `clientId`, it's the tenant that DefaultAzureCredential authenticates to (for example, with workload identity or the Azure CLI).
 	TenantID string `yaml:"tenantId,omitempty"`
 
-	// ClientID is the Microsoft Entra ID application (client) ID for authentication.
+	// ClientID is the Microsoft Entra ID application (client) ID or user-assigned managed identity client ID for authentication.
 	// Required when `clientSecret` is set.
-	// Without `clientSecret`, it selects a user-assigned managed identity, or the workload identity when `AZURE_FEDERATED_TOKEN_FILE` is set (as on AKS).
-	// If `clientId` and `clientSecret` are both empty, DefaultAzureCredential is used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	// If `clientId` and `clientSecret` are both empty, DefaultAzureCredential is used.
 	ClientID string `yaml:"clientId,omitempty"`
 
 	// ClientSecret is the Microsoft Entra ID application client secret for authentication.
-	// When set, `tenantId` and `clientId` are required too.
+	// Requires `tenantId` and `clientId`.
 	ClientSecret string `yaml:"clientSecret,omitempty"`
 }
 
@@ -272,17 +258,15 @@ type ConfigStorageAzureKeyVaultSecrets struct {
 
 	// TenantID is the Microsoft Entra ID tenant ID for authentication.
 	// Required when `clientSecret` is set.
-	// Without `clientSecret` and `clientId`, it's the tenant that DefaultAzureCredential authenticates to (for example, with workload identity or the Azure CLI).
 	TenantID string `yaml:"tenantId,omitempty"`
 
-	// ClientID is the Microsoft Entra ID application (client) ID for authentication.
+	// ClientID is the Microsoft Entra ID application (client) ID or user-assigned managed identity client ID for authentication.
 	// Required when `clientSecret` is set.
-	// Without `clientSecret`, it selects a user-assigned managed identity, or the workload identity when `AZURE_FEDERATED_TOKEN_FILE` is set (as on AKS).
-	// If `clientId` and `clientSecret` are both empty, DefaultAzureCredential is used (which can leverage authentication methods including: environmental variables, managed identity, workload identity).
+	// If `clientId` and `clientSecret` are both empty, DefaultAzureCredential is used.
 	ClientID string `yaml:"clientId,omitempty"`
 
 	// ClientSecret is the Microsoft Entra ID application client secret for authentication.
-	// When set, `tenantId` and `clientId` are required too.
+	// Requires `tenantId` and `clientId`.
 	ClientSecret string `yaml:"clientSecret,omitempty"`
 }
 
@@ -356,7 +340,6 @@ func (c *Config) Validate(logger *slog.Logger) error {
 	}
 
 	// Identity claim name
-	// Registered claims are rejected because the identity payload would overwrite or collide with a claim tsiam already sets
 	c.Tokens.ClaimName = strings.TrimSpace(c.Tokens.ClaimName)
 	switch c.Tokens.ClaimName {
 	case "":
@@ -364,7 +347,6 @@ func (c *Config) Validate(logger *slog.Logger) error {
 	case "iss", "sub", "aud", "exp", "nbf", "iat", "jti":
 		return errors.New("configuration option 'tokens.claimName' must not be a registered JWT claim set by tsiam: 'iss', 'sub', 'aud', 'exp', 'nbf', 'iat', 'jti'")
 	case "azp", "nonce", "auth_time", "acr", "amr", "cnf", "act", "may_act", "scope", "client_id":
-		// Relying parties give these claims a meaning, for example verifiers check that 'azp' matches their client ID
 		return errors.New("configuration option 'tokens.claimName' must not be a claim that relying parties interpret: 'azp', 'nonce', 'auth_time', 'acr', 'amr', 'cnf', 'act', 'may_act', 'scope', 'client_id'")
 	}
 	if len(c.Tokens.ClaimName) > 256 {
@@ -486,8 +468,7 @@ func (c *Config) Validate(logger *slog.Logger) error {
 	return nil
 }
 
-// Checks that the URL of an Azure Key Vault is an https:// URL that contains only the host (and optionally a port)
-// The Key Vault SDK sends the access token to this URL, so anything else is a configuration mistake
+// Ensures the Azure Key Vault URL is an https:// URL with only a host
 func validateAzureKeyVaultURL(option string, value string) error {
 	u, err := url.Parse(value)
 	if err != nil {
@@ -508,8 +489,7 @@ func validateAzureKeyVaultURL(option string, value string) error {
 	return nil
 }
 
-// Checks the credentials used to authenticate with Azure Key Vault
-// A client secret only works together with the tenant and client IDs, and without them tsiam would silently fall back to other credentials
+// Ensures tenantId and clientId are set when clientSecret is set
 func validateAzureCredentials(option string, tenantID string, clientID string, clientSecret string) error {
 	if clientSecret != "" && (tenantID == "" || clientID == "") {
 		return fmt.Errorf("configuration options '%[1]s.tenantId' and '%[1]s.clientId' must be set when '%[1]s.clientSecret' is set", option)
@@ -533,7 +513,6 @@ func (c *Config) validateAllowedAudiences() error {
 			return errors.New("configuration option 'tokens.allowedAudiences' contains an audience exceeding 512 characters")
 		}
 
-		// Requested audiences with control characters are rejected at request time, so an entry containing them could never be matched
 		if utils.HasControlChars(trimmed) {
 			return errors.New("configuration option 'tokens.allowedAudiences' contains an audience with control or non-printable characters")
 		}

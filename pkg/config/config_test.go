@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Returns a config that passes validation, so each test only changes the option it is checking
+// Returns a minimal valid Config for tests
 func newValidConfig() *Config {
 	c := GetDefaultConfig()
 	c.Tokens.AllowedAudiences = []string{"https://api.example.com"}
@@ -157,7 +157,6 @@ func TestValidateAllowedAudiences(t *testing.T) {
 		assert.Contains(t, err.Error(), "exceeding 512 characters")
 	})
 
-	// Leading and trailing whitespace control characters (e.g. a trailing newline) are trimmed, so only embedded ones reach the check
 	for name, aud := range map[string]string{
 		"NUL":     "https://api.example.com/\x00",
 		"newline": "https://api.example.com/\nfoo",

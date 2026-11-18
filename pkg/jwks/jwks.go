@@ -17,7 +17,7 @@ func GetPublicJWKSAsJSON(key jwk.Key) ([]byte, error) {
 		return nil, fmt.Errorf("failed to get public key: %w", err)
 	}
 
-	// Keys provisioned outside of tsiam may not have a usage, and some verifiers ignore keys in the JWKS without "use": "sig"
+	// Default key usage to "sig" if not set
 	_, ok := publicKey.KeyUsage()
 	if !ok {
 		err = publicKey.Set(jwk.KeyUsageKey, jwk.ForSignature)

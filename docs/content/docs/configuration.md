@@ -10,7 +10,7 @@ tsiam is configured via a YAML file. The application searches for configuration 
 3. `~/.tsiam/config.yaml`
 4. `/etc/tsiam/config.yaml`
 
-> When using Docker, mount the `config.yaml` file in `/etc/tsiam/config.yaml`. The container runs as user ID 65532, so directories you mount for tsiam's state must be writable by that user.
+> When using Docker, mount `config.yaml` at `/etc/tsiam/config.yaml`. The container runs as user ID 65532, so mounted state directories must be writable by that user.
 
 ## Example configuration
 
@@ -104,17 +104,17 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 | `tokens.lifetime` | duration | `"5m"` | Token lifetime (minimum: 1m, maximum: 1h) |
 | `tokens.allowedAudiences` | list | **required** | Audiences that can be requested - only these values will be issued |
 | `tokens.allowEmptyNodeCapability` | boolean | `false` | If true, nodes without an explicit ACL capability grant can request any globally-allowed audience |
-| `tokens.subjectClaim` | string | `"nodeId"` | Value to use for the JWT `sub` claim — see below |
-| `tokens.claimName` | string | `"italypaleale.me/tsiam"` | Name of the custom claim that carries the caller's Tailscale identity. Changing it breaks existing relying-party mappings — see [JWT claims](/docs/getting-a-token#jwt-claims) |
-| `tokens.includeCapabilities` | boolean | `false` | If true, the identity claim includes the caller's tsiam capability grants under `capMap`, readable by every relying party — see [JWT claims](/docs/getting-a-token#jwt-claims) |
+| `tokens.subjectClaim` | string | `"nodeId"` | Value to use for the JWT `sub` claim (see below) |
+| `tokens.claimName` | string | `"italypaleale.me/tsiam"` | Name of the custom claim with the caller's Tailscale identity (see [JWT claims](/docs/getting-a-token#jwt-claims)) |
+| `tokens.includeCapabilities` | boolean | `false` | If true, include the caller's tsiam capability grants under `capMap` in the identity claim (see [JWT claims](/docs/getting-a-token#jwt-claims)) |
 
 #### `tokens.subjectClaim` values
 
 | Value | Description |
 | --- | --- |
-| `"nodeId"` (default) | Stable Tailscale node identifier — recommended |
-| `"name"` | MagicDNS node name — **⚠ can be reused** if the device is removed and re-created |
-| `"capability"` | The `subject` field from the matching Tailscale ACL grants, allowing multiple nodes to share one workload identity. Grants that set different subjects make the request fail — see [Shared workload identity](/docs/audience-authorization#shared-workload-identity-via-subject) |
+| `"nodeId"` (default) | Stable Tailscale node ID (recommended) |
+| `"name"` | MagicDNS node name (**⚠ can be reused** if a device is removed and re-created) |
+| `"capability"` | The `subject` field from matching Tailscale ACL grants, so multiple nodes can share an identity (see [Shared workload identity](/docs/audience-authorization#shared-workload-identity-via-subject)) |
 
 ### `signingKey`
 
@@ -125,7 +125,7 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 
 > Microsoft Entra ID only accepts tokens signed with `RS256`. AWS and Google Cloud also accept `ES256`.
 
-> ⚠️ Note: Changing `signingKey.algorithm` doesn't replace a signing key that's already stored: tsiam logs a warning and keeps using the stored key. To switch algorithm, delete the stored key and restart tsiam. Tokens signed with the old key stop working.
+> ⚠️ Note: Changing `signingKey.algorithm` does not replace an existing key. To switch algorithms, delete the stored key and restart tsiam.
 
 **File storage** (`signingKey.storage: file`):
 
@@ -137,33 +137,33 @@ If tsiam itself runs in a cloud environment that provides OIDC tokens (e.g., AWS
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `signingKey.azureKeyVaultKeys.vaultUrl` | string | **required** | Azure Key Vault URL, with `https://` and only the host (e.g. `https://myvault.vault.azure.net/`) |
+| `signingKey.azureKeyVaultKeys.vaultUrl` | string | **required** | Azure Key Vault URL (e.g. `https://myvault.vault.azure.net/`) |
 | `signingKey.azureKeyVaultKeys.keyName` | string | **required** | Name of the RSA key used for wrapping/unwrapping |
-| `signingKey.azureKeyVaultKeys.keyVersion` | string | latest | Version of the key used to wrap new signing keys - empty or `latest` uses the latest version |
+| `signingKey.azureKeyVaultKeys.keyVersion` | string | latest | Key version used to wrap new signing keys (empty or `latest` uses the latest version) |
 | `signingKey.azureKeyVaultKeys.storagePath` | string | **required** | Path to store the wrapped signing key on disk |
 | `signingKey.azureKeyVaultKeys.tenantId` | string | — | Microsoft Entra ID tenant ID |
 | `signingKey.azureKeyVaultKeys.clientId` | string | — | Client ID of the application or managed identity |
 | `signingKey.azureKeyVaultKeys.clientSecret` | string | — | Client secret of the application |
 
-The wrapped signing key file records which version of the Key Vault key wrapped it, and tsiam always unwraps it with that version. After rotating the key in Key Vault, keep that version enabled, or tsiam won't be able to start.
+The wrapped key file records the Key Vault key version used to wrap it. After rotating the key in Key Vault, keep the old version enabled so tsiam can still unwrap the stored key.
 
 **Azure Key Vault Secrets** (`signingKey.storage: AzureKeyVaultSecrets`):
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `signingKey.azureKeyVaultSecrets.vaultUrl` | string | **required** | Azure Key Vault URL, with `https://` and only the host |
+| `signingKey.azureKeyVaultSecrets.vaultUrl` | string | **required** | Azure Key Vault URL (e.g. `https://myvault.vault.azure.net/`) |
 | `signingKey.azureKeyVaultSecrets.secretName` | string | **required** | Name of the secret storing the signing key |
 | `signingKey.azureKeyVaultSecrets.tenantId` | string | — | Microsoft Entra ID tenant ID |
 | `signingKey.azureKeyVaultSecrets.clientId` | string | — | Client ID of the application or managed identity |
 | `signingKey.azureKeyVaultSecrets.clientSecret` | string | — | Client secret of the application |
 
-If several tsiam instances share the same secret, start one of them first so it creates the signing key. Key Vault can't stop two instances that start at the same time from each storing a different key.
+If multiple tsiam instances share the same secret, start one instance first so it creates the signing key before the others start.
 
-**Authenticating with Azure Key Vault**: both Key Vault storages pick the credentials from `tenantId`, `clientId`, and `clientSecret`:
+**Authenticating with Azure Key Vault**:
 
-- With `clientSecret`, tsiam authenticates as the application with that secret. `tenantId` and `clientId` are required too.
-- With `clientId` only, tsiam uses the user-assigned managed identity with that client ID. When `AZURE_FEDERATED_TOKEN_FILE` is set (as with workload identity on AKS), it uses workload identity with that client ID instead.
-- With none of them, tsiam uses [`DefaultAzureCredential`](https://learn.microsoft.com/azure/developer/go/sdk/authentication/credential-chains#defaultazurecredential-overview), which reads the credentials from the environment (including `AZURE_CLIENT_ID`), the system-assigned managed identity, workload identity, or the Azure CLI. If `tenantId` is set, it's the tenant to authenticate to.
+- With `clientSecret`, tsiam authenticates with that client secret (`tenantId` and `clientId` are also required).
+- With `clientId` only, tsiam uses a user-assigned managed identity, or workload identity when `AZURE_FEDERATED_TOKEN_FILE` is set (such as on AKS).
+- Otherwise, tsiam uses [`DefaultAzureCredential`](https://learn.microsoft.com/azure/developer/go/sdk/authentication/credential-chains#defaultazurecredential-overview).
 
 ### `logs`
 
@@ -177,6 +177,6 @@ If several tsiam instances share the same secret, start one of them first so it 
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `metrics.includeNodeName` | boolean | `false` | Add the name of the node that requested each token to the `tsiam_auths` metric, in the `node` attribute. Every node name creates a new time series, so don't enable it on tailnets with ephemeral nodes |
+| `metrics.includeNodeName` | boolean | `false` | Add the caller's node name (`node` attribute) to the `tsiam_auths` metric. Avoid enabling this when using ephemeral nodes, as each node name creates a new time series |
 
 See [Observability](/docs/observability) for exporting logs, metrics, and traces.

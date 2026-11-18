@@ -22,22 +22,17 @@ import (
 
 const testAKVKeyName = "test-key"
 
-// Fake Azure Key Vault that wraps and unwraps with real RSA-OAEP-256, so tests hit the same plaintext size limits as the real service
-// Each version is a separate 2048-bit RSA key, the default key size in Azure Key Vault
+// In-memory fake for Azure Key Vault Keys using RSA-OAEP-256
 type fakeKeyVault struct {
 	versions map[string]*rsa.PrivateKey
 	latest   string
 
-	// Key versions passed to each call
 	wrapVersions   []string
 	unwrapVersions []string
 
-	// If set, calls return these errors
 	wrapErr   error
 	unwrapErr error
-
-	// If true, WrapKey responses do not include the key ID
-	omitKID bool
+	omitKID   bool
 }
 
 func newFakeKeyVault(t *testing.T) *fakeKeyVault {
@@ -50,7 +45,6 @@ func newFakeKeyVault(t *testing.T) *fakeKeyVault {
 	return f
 }
 
-// Adds a new version of the key and makes it the latest
 func (f *fakeKeyVault) rotate(t *testing.T) {
 	t.Helper()
 
@@ -125,7 +119,7 @@ func (f *fakeKeyVault) UnwrapKey(ctx context.Context, keyName string, keyVersion
 	}, nil
 }
 
-// Wraps the JWK directly with the given key version, like tsiam v0.5.0 and earlier did
+// Wraps the JWK directly with RSA-OAEP (v0.5.0 format)
 func (f *fakeKeyVault) legacyWrap(t *testing.T, key jwk.Key, keyVersion string) []byte {
 	t.Helper()
 
@@ -137,7 +131,6 @@ func (f *fakeKeyVault) legacyWrap(t *testing.T, key jwk.Key, keyVersion string) 
 	}, nil)
 	require.NoError(t, err)
 
-	// Reset the call log, so tests only see the calls made by the storage
 	f.wrapVersions = nil
 	return res.Result
 }
@@ -163,7 +156,6 @@ func readEnvelope(t *testing.T, path string) wrappedKeyEnvelope {
 	return env
 }
 
-// Returns the base64url-encoded private part (`d`) of a JWK
 func privateKeyParam(t *testing.T, key jwk.Key) string {
 	t.Helper()
 
@@ -233,7 +225,6 @@ func TestAzureKeyVaultKeyStorage_LoadNonExistent(t *testing.T) {
 	require.ErrorIs(t, err, errKeyNoExist)
 	require.Nil(t, key)
 
-	// An empty file is treated as missing, with a warning since a new key replaces it
 	logs := captureLogs(t)
 	err = os.WriteFile(storage.storagePath, nil, 0600)
 	require.NoError(t, err)
@@ -247,7 +238,6 @@ func TestAzureKeyVaultKeyStorage_LoadNonExistent(t *testing.T) {
 }
 
 func TestAzureKeyVaultKeyStorage_RoundTrip(t *testing.T) {
-	// With an RSA-2048 wrapping key, RSA-OAEP-256 can encrypt at most 190 bytes, which is less than the serialized private JWK for every algorithm except EdDSA
 	kv := newFakeKeyVault(t)
 
 	algs := []struct {
@@ -270,7 +260,6 @@ func TestAzureKeyVaultKeyStorage_RoundTrip(t *testing.T) {
 			err = storage.Store(t.Context(), signingKey)
 			require.NoError(t, err)
 
-			// The file records the version that wrapped the DEK, and does not contain the plaintext key
 			env := readEnvelope(t, storage.storagePath)
 			assert.Equal(t, wrappedKeyEnvelopeVersion, env.Version)
 			assert.Equal(t, kv.latest, env.KeyVersion)
@@ -285,7 +274,6 @@ func TestAzureKeyVaultKeyStorage_RoundTrip(t *testing.T) {
 			require.NoError(t, err)
 			requireSameKey(t, signingKey, loadedKey)
 
-			// Loading a pinned file does not rewrite it
 			after, err := os.ReadFile(storage.storagePath)
 			require.NoError(t, err)
 			assert.Equal(t, before, after)
@@ -303,7 +291,6 @@ func TestAzureKeyVaultKeyStorage_LoadAfterRotation(t *testing.T) {
 	err = storage.Store(t.Context(), signingKey)
 	require.NoError(t, err)
 
-	// Rotating the key in Key Vault creates a new latest version
 	kv.rotate(t)
 
 	loadedKey, err := storage.Load(t.Context())
@@ -338,7 +325,6 @@ func TestAzureKeyVaultKeyStorage_StoreExisting(t *testing.T) {
 	err = storage.Store(t.Context(), firstKey)
 	require.NoError(t, err)
 
-	// Another instance stored its key first, so this one isn't saved
 	secondKey, err := jwks.NewSigningKey("ES256", "")
 	require.NoError(t, err)
 	err = storage.Store(t.Context(), secondKey)
@@ -351,7 +337,6 @@ func TestAzureKeyVaultKeyStorage_StoreExisting(t *testing.T) {
 }
 
 func TestAzureKeyVaultKeyStorage_LoadLegacy(t *testing.T) {
-	// Files written by tsiam v0.5.0 and earlier contain the JWK wrapped directly with the Key Vault key, which only fits for EdDSA keys with an RSA-2048 wrapping key
 	t.Run("rewrites file pinned to the latest version", func(t *testing.T) {
 		kv := newFakeKeyVault(t)
 		storage := newTestAKVStorage(t, kv, "")
@@ -368,7 +353,6 @@ func TestAzureKeyVaultKeyStorage_LoadLegacy(t *testing.T) {
 		env := readEnvelope(t, storage.storagePath)
 		assert.Equal(t, kv.latest, env.KeyVersion)
 
-		// After rotating, the rewritten file still loads
 		originalVersion := kv.latest
 		kv.rotate(t)
 		kv.unwrapVersions = nil
@@ -386,7 +370,6 @@ func TestAzureKeyVaultKeyStorage_LoadLegacy(t *testing.T) {
 		require.NoError(t, err)
 		legacy := kv.legacyWrap(t, signingKey, "")
 
-		// The key was rotated before upgrading, so the legacy file can only be unwrapped with the configured version
 		kv.rotate(t)
 		storage := newTestAKVStorage(t, kv, originalVersion)
 		err = os.WriteFile(storage.storagePath, legacy, 0600)
@@ -415,7 +398,6 @@ func TestAzureKeyVaultKeyStorage_LoadLegacy(t *testing.T) {
 		require.NoError(t, err)
 		requireSameKey(t, signingKey, loadedKey)
 
-		// The legacy file is left in place
 		data, err := os.ReadFile(storage.storagePath)
 		require.NoError(t, err)
 		assert.Equal(t, legacy, data)
@@ -431,7 +413,6 @@ func TestAzureKeyVaultKeyStorage_LoadUnpinnedEnvelope(t *testing.T) {
 	err = storage.Store(t.Context(), signingKey)
 	require.NoError(t, err)
 
-	// Remove the recorded version from the file
 	env := readEnvelope(t, storage.storagePath)
 	env.KeyVersion = ""
 	data, err := json.Marshal(env)
@@ -443,7 +424,6 @@ func TestAzureKeyVaultKeyStorage_LoadUnpinnedEnvelope(t *testing.T) {
 	require.NoError(t, err)
 	requireSameKey(t, signingKey, loadedKey)
 
-	// The file is rewritten, with the version recorded
 	env = readEnvelope(t, storage.storagePath)
 	assert.Equal(t, kv.latest, env.KeyVersion)
 }

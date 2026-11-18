@@ -93,12 +93,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Used by scripts/build-binaries.sh to write a CycloneDX SBOM for each release binary to .out, before the checksum and attestation steps, so both cover them too
-      # Each SBOM is generated from the module list that Go embeds in the binary: tailscale.com links different modules on each OS, so an SBOM for the whole repo would not match what users deploy
+      # Used by scripts/build-binaries.sh to generate a CycloneDX SBOM per binary
       - name: Install cyclonedx-gomod
         env:
-          # Pinned to an exact release that is at least a week old
-          # `go install pkg@version` ignores this repo's go.mod and verifies the downloaded modules against sum.golang.org
           CYCLONEDX_GOMOD_VERSION: "v1.12.0"
         run: |
           GOBIN="${RUNNER_TEMP}/bin" go install "github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@${CYCLONEDX_GOMOD_VERSION}"
@@ -152,7 +149,7 @@ jobs:
           file: Dockerfile
           push: true
 
-      # A single attestation covering every file attached to the release: the archives, their SBOMs, and checksums.txt
+      # Attest release archives, SBOMs, and checksums.txt
       - name: Attestation for release archives
         id: attest-archives
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # 4.2.1
@@ -160,7 +157,7 @@ jobs:
         with:
           subject-path: '.out/*'
 
-      # Attached to the release so the provenance can also be verified offline, with `gh attestation verify <archive> --bundle attestations.json`
+      # Include the attestation bundle in the release for offline verification
       - name: Stage attestation bundle
         if: startsWith(github.ref, 'refs/tags/v')
         env:
@@ -217,22 +214,20 @@ jobs:
 
       - name: Publish release
         run: |
-          # Published releases are immutable: re-running the workflow on the same tag must fail, not overwrite
+          # Fail if the release already exists
           if gh release view "${TAG}" >/dev/null 2>&1; then
             echo "::error::Release ${TAG} already exists, and published releases are immutable"
             exit 1
           fi
 
-          # Tags carrying a pre-release identifier (such as v1.2.0-rc.1) are marked as pre-releases
+          # Mark tags with a pre-release suffix (e.g. v1.2.0-rc.1) as pre-releases
           prerelease=()
           if [[ "${TAG}" == *-* ]]; then
             echo "Marking ${TAG} as a pre-release"
             prerelease=(--prerelease)
           fi
 
-          # An annotated tag carries a message; use it as the release notes.
-          # A lightweight tag has no message, so fall back to auto-generated notes.
-          # Strip any Git signature block from the tag message so it doesn't leak into the release notes.
+          # Use the tag annotation message as release notes (stripping any Git signature), or auto-generate notes for lightweight tags
           notes_args=()
           tag_type=$(git tag -l --format='%(objecttype)' "${TAG}")
           if [[ "${tag_type}" == "tag" ]]; then
@@ -261,7 +256,6 @@ jobs:
           echo "Attaching ${#assets[@]} assets:"
           printf '  %s\n' "${assets[@]}"
 
-          # Never pass --draft: the release is published immediately, with no approval step
           gh release create "${TAG}" \
             --verify-tag \
             --title "${TAG}" \

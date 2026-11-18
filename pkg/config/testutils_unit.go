@@ -10,8 +10,8 @@ import (
 	"github.com/jinzhu/copier"
 )
 
-// String implements fmt.Stringer and prints out the config for debugging
-// It is only available in unit tests because the output includes secrets such as `tsnet.authKey` and `clientSecret` verbatim
+// String implements fmt.Stringer for debugging in tests
+// It is only available in unit tests because the output can include secrets
 func (c *Config) String() string {
 	//nolint:errchkjson,musttag
 	enc, _ := json.Marshal(c)

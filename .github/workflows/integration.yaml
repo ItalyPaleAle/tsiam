@@ -15,7 +15,7 @@ env:
 jobs:
   build:
     name: Build tsiam
-    # Skip when running from a fork, which can't access the tailnet: either in a forked repository, or in a pull request opened from one
+    # Skip on forks, which don't have access to the tailnet
     if: ${{ !github.event.repository.fork && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-26.04
     permissions:
@@ -137,7 +137,6 @@ jobs:
           STATE_DIR="/tmp/tsiam-tsnet-${AUTH_MODE}"
           mkdir -p "${STATE_DIR}"
 
-          # Only the authkey mode sets an auth key: in the federation mode, tsiam gets its credentials from environment variables when it starts
           AUTH_KEY_LINE=""
           if [ "${AUTH_MODE}" = "authkey" ]; then
             AUTH_KEY_LINE="  authKey: ${TS_AUTH_KEY}"
@@ -188,8 +187,6 @@ jobs:
           AUTH_MODE: ${{ matrix.auth_mode }}
         run: |
           if [ "${AUTH_MODE}" = "federation" ]; then
-            # Direct federation path in tsnet requires client ID + audience (or ID token),
-            # and tags. preauthorized=true avoids a manual machine-approval step in CI.
             export TS_CLIENT_ID="${TS_OAUTH_CLIENT_ID}?preauthorized=true&ephemeral=true"
             export TS_AUDIENCE="${TS_OAUTH_AUDIENCE}"
           fi

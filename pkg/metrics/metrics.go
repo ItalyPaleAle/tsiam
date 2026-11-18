@@ -36,7 +36,6 @@ func NewAppMetrics(ctx context.Context) (m *AppMetrics, shutdownFn func(ctx cont
 		return nil, nil, fmt.Errorf("failed to init metrics: %w", err)
 	}
 
-	// The meter provider is running from here on, so it's shut down if the rest of the initialization fails
 	// Runtime instrumentation for Go runtime metrics
 	err = runtime.Start()
 	if err != nil {

@@ -67,7 +67,6 @@ func TestFileKeyStorage_StoreExisting(t *testing.T) {
 	err = storage.Store(t.Context(), firstKey)
 	require.NoError(t, err)
 
-	// Another instance stored its key first, so this one isn't saved
 	secondKey, err := jwks.NewSigningKey("ES256", "")
 	require.NoError(t, err)
 	err = storage.Store(t.Context(), secondKey)
@@ -124,7 +123,6 @@ func TestFileKeyStorage_LoadWarnings(t *testing.T) {
 
 	for _, mode := range []os.FileMode{0o640, 0o604, 0o620, 0o644} {
 		t.Run("Warns about a key file with mode "+mode.String(), func(t *testing.T) {
-			// Permission bits are not meaningful on Windows
 			if runtime.GOOS == "windows" {
 				t.Skip("skipping permission check on Windows")
 			}
@@ -146,11 +144,10 @@ func TestFileKeyStorage_LoadWarnings(t *testing.T) {
 		}
 		storage := newStoredKey(t)
 
-		// Kubernetes mounts Secrets as symlinks, which must keep working
 		link := filepath.Join(t.TempDir(), "link.json")
 		err := os.Symlink(storage.path, link)
 		require.NoError(t, err)
-		err = os.Chmod(storage.path, 0o644) // #nosec G302 -- The test needs a key file that other users can read
+		err = os.Chmod(storage.path, 0o644) // #nosec G302
 		require.NoError(t, err)
 		linked, err := NewFileKeyStorage(link)
 		require.NoError(t, err)

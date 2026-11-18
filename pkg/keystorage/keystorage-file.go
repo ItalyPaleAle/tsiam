@@ -42,8 +42,7 @@ func (f *FileKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 		return nil, fmt.Errorf("failed to read key file: %w", err)
 	}
 
-	// A zero-byte file is treated as missing rather than a parse error
-	// tsiam never writes an empty file, so this is logged as a warning: the new key has a different ID, and tokens signed with the old key stop working
+	// Treat an empty file as missing
 	if len(data) == 0 {
 		slog.WarnContext(ctx, "Signing key file is empty, so a new signing key is generated and replaces it", slog.String("path", f.path))
 		return nil, errKeyNoExist
@@ -54,7 +53,6 @@ func (f *FileKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 		return nil, fmt.Errorf("failed to parse key: %w", err)
 	}
 
-	// The file contains the private key unencrypted
 	warnIfKeyFileAccessible(ctx, f.path)
 
 	slog.InfoContext(ctx, "Loaded signing key from file storage",
@@ -65,15 +63,13 @@ func (f *FileKeyStorage) Load(ctx context.Context) (jwk.Key, error) {
 	return key, nil
 }
 
-// Store saves the signing key to a file, if the file doesn't exist yet
+// Store saves the signing key to a file if it does not already exist
 func (f *FileKeyStorage) Store(ctx context.Context, key jwk.Key) error {
 	data, err := json.Marshal(key)
 	if err != nil {
 		return fmt.Errorf("failed to encode key: %w", err)
 	}
 
-	// Atomic write so a torn write cannot leave an unparseable key file on disk
-	// An existing empty file is replaced, since Load treats it as missing
 	err = fsutil.CreateFile(f.path, data, keyFileMode, fsutil.WithReplaceEmpty())
 	if errors.Is(err, fs.ErrExist) {
 		return errKeyExists
@@ -89,10 +85,8 @@ func (f *FileKeyStorage) Store(ctx context.Context, key jwk.Key) error {
 	return nil
 }
 
-// Logs a warning if users other than the owner can access the key file
-// Following symlinks is intentional, since Kubernetes mounts Secrets as symlinks, so this checks the file they point to
+// Logs a warning if the key file is accessible by users other than its owner
 func warnIfKeyFileAccessible(ctx context.Context, path string) {
-	// Permission bits don't apply on Windows, where access is controlled by the ACLs that the file inherits from its directory
 	if runtime.GOOS == "windows" {
 		return
 	}

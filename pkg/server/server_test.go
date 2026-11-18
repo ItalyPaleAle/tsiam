@@ -12,8 +12,6 @@ import (
 )
 
 func TestRunShutdown(t *testing.T) {
-	// Starts the server on a local listener with a handler that blocks until its request is canceled
-	// Returns a function that stops the server and waits for Run to return
 	startServer := func(t *testing.T, shutdownTimeout time.Duration, handler http.HandlerFunc) (addr string, stop func() error) {
 		t.Helper()
 
@@ -55,7 +53,6 @@ func TestRunShutdown(t *testing.T) {
 			close(canceled)
 		})
 
-		// Send a request that doesn't complete until the server cancels it
 		clientErr := make(chan error, 1)
 		go func() {
 			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+"/", nil)
@@ -74,7 +71,6 @@ func TestRunShutdown(t *testing.T) {
 		err := stop()
 		require.NoError(t, err)
 
-		// When Run returns, the handler's context must be canceled, so it stops using the tsnet server and the metrics
 		select {
 		case <-canceled:
 		case <-time.After(time.Second):
@@ -115,7 +111,6 @@ func TestRunShutdown(t *testing.T) {
 		}()
 		<-started
 
-		// Release the handler after the shutdown has started
 		go func() {
 			time.Sleep(100 * time.Millisecond)
 			close(release)

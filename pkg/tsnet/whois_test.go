@@ -111,7 +111,6 @@ func TestIsAudiencePermittedForCaller(t *testing.T) {
 			expected:               false,
 		},
 		{
-			// Typo in field name should be rejected by DisallowUnknownFields rather than silently producing an empty allowedAudiences list
 			name:     "Capability with typo in field name is rejected, not silently empty",
 			audience: "https://api.example.com",
 			capMap: tailcfg.PeerCapMap{
@@ -352,16 +351,13 @@ func TestParseCapability(t *testing.T) {
 	}
 }
 
-// MatchAudienceCapability consumes attacker-influenced JSON straight out of Tailscale ACL grants
-// The fuzzer verifies that no malformed input can panic the parser or trick it into approving an audience it shouldn't
 func FuzzMatchAudienceCapability(f *testing.F) {
-	// Seed with known-good and known-malformed shapes
 	f.Add([]byte(`{"allowedAudiences":["https://api.example.com"]}`))
 	f.Add([]byte(`{"allowedAudiences":["https://api.example.com"],"subject":"group-a"}`))
 	f.Add([]byte(`{"allowedAudiences":["https://api.example.com"],"subject":"  "}`))
 	f.Add([]byte(`{"allowedAudiences":["https://api.example.com"]} {"subject":"group-a"}`))
 	f.Add([]byte(`{"allowedAudiences":[]}`))
-	f.Add([]byte(`{"allowedAudience":["https://api.example.com"]}`)) // typo - unknown field
+	f.Add([]byte(`{"allowedAudience":["https://api.example.com"]}`))
 	f.Add([]byte(`not valid json`))
 	f.Add([]byte(`null`))
 	f.Add([]byte(`123`))
@@ -377,11 +373,7 @@ func FuzzMatchAudienceCapability(f *testing.F) {
 			},
 		}
 
-		// Must never panic, regardless of input
 		subjects, ok := MatchAudienceCapability(t.Context(), whois, targetAudience, false)
-
-		// If we matched, the input MUST decode to a TsiamCapability containing the target audience
-		// This catches a regression where DisallowUnknownFields is removed and a typo'd field silently passes, or where trailing data after the object is ignored
 		if ok {
 			var decoded TsiamCapability
 			err := json.Unmarshal(raw, &decoded)
@@ -392,7 +384,6 @@ func FuzzMatchAudienceCapability(f *testing.F) {
 				t.Fatalf("matched %q but allowedAudiences %v does not contain %q", raw, decoded.AllowedAudiences, targetAudience)
 			}
 
-			// And the returned subject must be the one in the grant, trimmed
 			var expectSubjects []string
 			subject := strings.TrimSpace(decoded.Subject)
 			if subject != "" {

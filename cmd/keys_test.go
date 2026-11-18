@@ -14,7 +14,7 @@ import (
 	"github.com/italypaleale/tsiam/pkg/keystorage"
 )
 
-// Wraps a key storage to run a function before Store, which can simulate another instance storing its key first
+// Wraps KeyStorage to run a hook before Store
 type racingKeyStorage struct {
 	keystorage.KeyStorage
 
@@ -23,7 +23,7 @@ type racingKeyStorage struct {
 
 func (r racingKeyStorage) Store(ctx context.Context, key jwk.Key) error {
 	r.beforeStore()
-	return r.KeyStorage.Store(ctx, key) //nolint:wrapcheck // loadOrCreateKey must see the storage's error unchanged
+	return r.KeyStorage.Store(ctx, key) //nolint:wrapcheck
 }
 
 func TestLoadOrCreateKey(t *testing.T) {
@@ -85,7 +85,6 @@ func TestLoadOrCreateKey(t *testing.T) {
 }
 
 func TestGetAzureKeyVaultCredentials(t *testing.T) {
-	// The credentials are only created here, so no request is sent to Azure
 	t.Run("client secret", func(t *testing.T) {
 		creds, err := getAzureKeyVaultCredentials("00000000-0000-0000-0000-000000000000", "client", "secret")
 		require.NoError(t, err)

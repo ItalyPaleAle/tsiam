@@ -12,17 +12,17 @@ POST https://tsiam.tailnet-name.ts.net/token?resource=<audience>
 X-Tsiam: 1
 ```
 
-Use tsiam's full MagicDNS name, with your Tailnet's DNS name instead of `tailnet-name`. The short name (`https://tsiam`) doesn't work, because tsiam's TLS certificate is only valid for the full name.
+Use tsiam's full MagicDNS name, replacing `tailnet-name` with your Tailnet's DNS name. The short name (`https://tsiam`) does not work because the TLS certificate is only valid for the full name.
 
-The `X-Tsiam: 1` header is required and helps preventing cross-site request forgery by ensuring requests are made intentionally. Requests must not include the `Origin` and `Sec-Fetch-*` headers that web browsers send and must not have a body.
+The `X-Tsiam: 1` header is required to prevent cross-site request forgery (CSRF). Requests must not include a body or browser headers (`Origin`, `Sec-Fetch-*`).
 
-The `/token` endpoint is only reachable from within your Tailnet. It is never exposed via Tailscale Funnel.
+The `/token` endpoint is only reachable from within your Tailnet and is never exposed via Tailscale Funnel.
 
-Nodes from other tailnets can't get tokens, even if they can reach tsiam: this includes nodes shared into your tailnet, and devices of users you shared tsiam with. Nodes whose key has expired can't get tokens either.
+Only non-expired nodes in your own Tailnet can request tokens. Shared nodes from other Tailnets are rejected.
 
-Tokens identify the node, not the process that requested them: every process on the node can request the same tokens, including those of other OS users, and containers that share the host's network or Tailscale connection.To give workloads separate identities, run each one as its own node, for example with a Tailscale sidecar for each container.
+Tokens identify the node, not the calling process: every process on the node (including other OS users and containers sharing the host network) can request the same tokens. To isolate workloads, run each one as its own Tailscale node (for example, with a Tailscale sidecar).
 
-Additionally, tokens never outlive the key of the node that requested them: if the node's key expires sooner than [`tokens.lifetime`](/docs/configuration#tokens), the token expires with it.
+If the node's key expires sooner than [`tokens.lifetime`](/docs/configuration#tokens), the token expiration is capped at the key's expiry.
 
 ### Query parameters
 
@@ -30,7 +30,7 @@ Additionally, tokens never outlive the key of the node that requested them: if t
 | --- | --- | --- |
 | `resource` | Yes | The audience for the token (alias: `audience`), which specifies the intended recipient of the token. Must be in the [allowed audiences list](/docs/audience-authorization). |
 
-Each parameter can be set only once. If you set both `resource` and `audience`, they must have the same value. Parameters must be query-string encoded.
+Each parameter can be set only once. If both `resource` and `audience` are set, they must match.
 
 ### Common audience values
 
@@ -98,13 +98,13 @@ The JWT token contains the requested audience in the `aud` claim, and your Tails
 }
 ```
 
-The `name` field is the node's MagicDNS name, and `hostname` is the same name without the tailnet suffix. By default, Tailscale derives the MagicDNS name from the device's OS hostname, so the device can change it, and a name can be reused after a device is removed.
+`name` is the node's MagicDNS name, and `hostname` is the name without the Tailnet suffix. Because MagicDNS names can be changed by the device or reused after a device is removed, base your trust policies on `nodeId` or `tags` rather than `name` or `hostname`.
 
-Always apply trust policies to `nodeId` or `tags`, instead of `name` or `hostname` which users can change.
+> **Tagged nodes:** Tagged nodes (`tag:*`) include `tags` instead of `userLoginName`.
 
-By default the `sub` claim is the stable Tailscale node identifier. Set [`tokens.subjectClaim`](./configuration.md#tokenssubjectclaim-values) to `"name"` to use the (recyclable) node name instead (note the security warning in the config docs) or to `"capability"` to pull the subject from the `subject` field of the matching Tailscale ACL grants, letting multiple nodes share one workload identity (see [Shared workload identity](/docs/audience-authorization#shared-workload-identity-via-subject)).
+By default, `sub` is the node ID. You can change [`tokens.subjectClaim`](/docs/configuration#tokenssubjectclaim-values) to `"name"` to use the MagicDNS name, or `"capability"` to use the `subject` from matching Tailscale ACL grants (see [Shared workload identity](/docs/audience-authorization#shared-workload-identity-via-subject)).
 
-The identity claim does not include the caller's Tailscale peer capabilities by default. Set [`tokens.includeCapabilities`](/docs/configuration#tokens) to `true` to add the caller's tsiam grants under a `capMap` field, keyed by the `italypaleale.me/tsiam` capability. Tokens are signed but not encrypted, so every relying party can read those grants (including their `allowedAudiences` and `subject` values).
+Set [`tokens.includeCapabilities`](/docs/configuration#tokens) to `true` to include the caller's tsiam ACL grants under `capMap` in the identity claim:
 
 ```jsonc
 {
@@ -121,17 +121,15 @@ The identity claim does not include the caller's Tailscale peer capabilities by 
 }
 ```
 
-> **Tagged nodes:** for nodes that carry one or more Tailscale tags (`tag:*`), the `userLoginName` field of the identity claim is always empty. The upstream value is the email of whoever authorized the tag, not the workload's owner, so it must not be used as a user-identity signal in relying-party trust policies. Bind tagged-workload trust policies to the `tags` and `nodeId` fields instead.
-
 ### Referencing the identity claim
 
-The default claim name contains `.` and `/`, so policy languages that use dotted paths need index syntax to read it. For example, a Google Cloud workload identity pool attribute mapping would be:
+The default claim name contains `.` and `/`, so policy languages that use dotted paths need bracket notation. For example, in a Google Cloud workload identity pool attribute mapping:
 
 ```text
 attribute.node_id = assertion['italypaleale.me/tsiam'].nodeId
 ```
 
-If you set `tokens.claimName` to `tsiam`, the same mapping becomes `assertion.tsiam.nodeId`. The claim name only affects issued tokens: Tailscale ACL grants always use the `italypaleale.me/tsiam` capability key (see [Audience Authorization](/docs/audience-authorization)).
+If you set `tokens.claimName` to `tsiam`, you can use `assertion.tsiam.nodeId` instead. `tokens.claimName` only changes the claim in issued tokens; Tailscale ACL grants always use `italypaleale.me/tsiam`.
 
 ### Code Examples
 
