@@ -109,12 +109,15 @@ jobs:
             ./scripts/build-binaries.sh "${target}"
           done
 
-          echo -e "\n###\nLinks for Docker buildx\n"
+          echo -e "\n###\nCopying binaries for Docker buildx\n"
           (
             cd .bin && \
-            ln -v -s "tsiam-${BUILD_ID}-linux-amd64" linux-amd64 && \
-            ln -v -s "tsiam-${BUILD_ID}-linux-arm64" linux-arm64 && \
-            ln -v -s "tsiam-${BUILD_ID}-linux-armv7" linux-arm \
+            for pair in linux-amd64:linux-amd64 linux-arm64:linux-arm64 linux-armv7:linux-arm; do
+              src="tsiam-${BUILD_ID}-${pair%%:*}"
+              dst="${pair#*:}"
+              mkdir -p "${dst}"
+              cp -v "${src}/tsiam" "${dst}/tsiam"
+            done
           )
 
           echo -e "\n###\nCompilation done\n"
