@@ -64,7 +64,7 @@ docker run -d \
   -v /path/to/config.yaml:/etc/tsiam/config.yaml:ro \
   -v /path/to/tsnet-state:/etc/tsiam/tsnet \
   -v /path/to/tsiam-state:/var/lib/tsiam \
-  ghcr.io/italypaleale/tsiam:v0
+  ghcr.io/italypaleale/tsiam:v1
 ```
 
 The container runs as user ID 65532. On Linux, make the two state directories writable by that user:

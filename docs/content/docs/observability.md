@@ -91,7 +91,7 @@ docker run -d \
   -e OTEL_METRICS_EXPORTER=otlp \
   -e OTEL_TRACES_EXPORTER=otlp \
   -e OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=production \
-  ghcr.io/italypaleale/tsiam:v0
+  ghcr.io/italypaleale/tsiam:v1
 ```
 
 tsiam works with any OpenTelemetry-compatible backend, including Grafana Cloud, Datadog, Honeycomb, and self-hosted collectors.
